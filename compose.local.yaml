@@ -1,0 +1,22 @@
+name: research-copilot-local
+services:
+  db:
+    image: pgvector/pgvector:0.8.6-pg16-bookworm
+    environment:
+      POSTGRES_DB: copilot_dev
+      POSTGRES_USER: copilot
+      POSTGRES_PASSWORD: ${PRODUCT_DB_PASSWORD:?Run scripts/product_local_init.py first}
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - product_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copilot -d copilot_dev"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    mem_limit: 768m
+    cpus: 1.0
+    restart: unless-stopped
+volumes:
+  product_pgdata:

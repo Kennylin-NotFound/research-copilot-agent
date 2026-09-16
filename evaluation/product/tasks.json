@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "declared_before_model_execution": true,
+  "scope": "M0 task-model fit smoke tests; not the M6 12-task evaluation",
+  "sources": [
+    {"id": "react-v3", "url": "https://arxiv.org/pdf/2210.03629v3", "title": "ReAct: Synergizing Reasoning and Acting in Language Models", "file": "react-v3.pdf"},
+    {"id": "reflexion-v4", "url": "https://arxiv.org/pdf/2303.11366v4", "title": "Reflexion: Language Agents with Verbal Reinforcement Learning", "file": "reflexion-v4.pdf"}
+  ],
+  "tasks": [
+    {
+      "id": "M0-QA-01", "skill": "evidence-qa", "source_ids": ["react-v3"], "pages": [1, 2, 3],
+      "input": "Based only on the provided ReAct pages, explain how reasoning and acting interact. Give two concise claims with source page and short verbatim supporting quotes. State one limitation of the available evidence. Do not claim production reliability.",
+      "rubric": ["Two claims explain the relationship between reasoning, actions and observations", "Every source ID exists and quoted text is found on the declared page", "Answer does not claim checkpointing, exactly-once or production reliability", "Evidence limitation is explicit"]
+    },
+    {
+      "id": "M0-REVIEW-01", "skill": "paper-review", "source_ids": ["reflexion-v4"], "pages": [1, 2, 3],
+      "input": "Review the supplied Reflexion excerpt: summarize the mechanism, explain the role of feedback and memory, and distinguish this from updating model weights. Use at most three supported claims. Mark details outside this excerpt as unknown; do not invent benchmark comparisons.",
+      "rubric": ["Describes language-based reflection/feedback and episodic memory", "Does not describe it as weight fine-tuning", "Citations match pages and support each mechanism claim", "Separates excerpt-supported findings from missing full-paper details"]
+    },
+    {
+      "id": "M0-SURVEY-01", "skill": "evidence-survey", "source_ids": ["react-v3", "reflexion-v4"], "pages": [1, 2, 3],
+      "input": "Compare ReAct and Reflexion on interaction with the environment and use of feedback/memory, based only on these excerpts. Give at least one supported claim for each paper and a short practical design implication clearly marked as an inference. Do not rank effectiveness across incomparable experiments.",
+      "rubric": ["Includes both papers with source-bound claims", "Distinguishes within-task reasoning/action from reflection over feedback", "Design implication is explicitly labeled inference", "Does not assert an unsupported cross-paper performance winner"]
+    }
+  ]
+}

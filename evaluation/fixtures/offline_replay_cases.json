@@ -1,0 +1,116 @@
+{
+  "suite_id": "research-copilot-offline-replay",
+  "suite_version": "1.0.0",
+  "cases": [
+    {
+      "id": "rag_retrieval_nominal",
+      "category": "nominal_survey",
+      "expected_directions": ["dense retrieval", "sparse retrieval", "hybrid search", "query rewriting", "reranking"],
+      "key_papers": ["RAG", "DPR", "ColBERT"],
+      "expected_tools": ["search_papers_ranked", "read_paper", "save_to_kb", "assess_coverage"],
+      "min_papers": 3,
+      "max_tool_calls": 20,
+      "max_duration_ms": 120000,
+      "expected_gate_pass": true,
+      "snapshot": {
+        "output": "## 背景与概述\nRAG 检索包括 dense retrieval、sparse retrieval 和 hybrid search。\n## 方向分类\nquery rewriting 与 reranking 是重要方向。\n## 方法比较\n比较不同召回和重排策略。\n## 趋势展望\n未来关注自适应路由。\n## 参考文献\nRAG、DPR、ColBERT。",
+        "stored_titles": ["RAG for Knowledge-Intensive NLP", "DPR Dense Passage Retrieval", "ColBERT Efficient Retrieval"],
+        "intermediate_steps": [
+          {"name": "search_papers_ranked", "status": "success"},
+          {"name": "read_paper", "status": "success"},
+          {"name": "save_to_kb", "status": "success"},
+          {"name": "assess_coverage", "status": "success"}
+        ],
+        "trace": {"termination_reason": "completed", "papers_count": 3, "tool_calls": 4, "duration_ms": 54000}
+      }
+    },
+    {
+      "id": "agent_planning_nominal",
+      "category": "nominal_survey",
+      "expected_directions": ["ReAct", "chain of thought", "tree of thought", "task decomposition", "self-reflection"],
+      "key_papers": ["ReAct", "Chain-of-Thought", "Reflexion"],
+      "expected_tools": ["search_papers", "read_paper", "save_to_kb", "query_knowledge"],
+      "min_papers": 3,
+      "expected_gate_pass": true,
+      "snapshot": {
+        "output": "## 背景概述\nAgent 规划包含 ReAct 与 chain of thought。\n## 方向分类\ntree of thought、task decomposition 和 self-reflection。\n## 方法对比\n比较规划、行动和反思机制。\n## 趋势展望\n未来关注可验证规划。\n## 参考引用\nReAct、Chain-of-Thought、Reflexion。",
+        "stored_titles": ["ReAct", "Chain-of-Thought Prompting", "Reflexion"],
+        "intermediate_steps": [
+          {"name": "search_papers", "status": "success"},
+          {"name": "read_paper", "status": "success"},
+          {"name": "save_to_kb", "status": "success"},
+          {"name": "query_knowledge", "status": "success"}
+        ],
+        "trace": {"termination_reason": "completed", "papers_count": 3, "tool_calls": 4, "duration_ms": 61000}
+      }
+    },
+    {
+      "id": "deep_dive_nominal",
+      "category": "fixed_workflow",
+      "expected_directions": ["problem formulation", "method", "experiment", "limitation"],
+      "key_papers": ["Reliable Desktop Research Copilot"],
+      "expected_tools": [],
+      "min_papers": 1,
+      "expected_gate_pass": true,
+      "snapshot": {
+        "output": "## 背景概述\nPaper context.\n## 方向分类\nproblem formulation。\n## 方法对比\nmethod 与 experiment。\n## 趋势展望\nlimitation 与改进方向。\n## 参考文献\nReliable Desktop Research Copilot。",
+        "stored_titles": ["Reliable Desktop Research Copilot"],
+        "intermediate_steps": [],
+        "trace": {"termination_reason": "completed", "papers_count": 1, "tool_calls": 0, "duration_ms": 9000}
+      }
+    },
+    {
+      "id": "recursion_recovery",
+      "category": "degraded_but_recovered",
+      "expected_directions": ["planning", "tool use", "fallback"],
+      "key_papers": ["Paper A", "Paper B"],
+      "expected_tools": ["search_papers", "read_paper", "save_to_kb"],
+      "allowed_termination_reasons": ["recursion_limit"],
+      "min_papers": 2,
+      "expected_gate_pass": true,
+      "snapshot": {
+        "output": "## 背景概述\nplanning、tool use 与 fallback。\n## 方向分类\n三类恢复路径。\n## 方法对比\n比较正常总结和知识库兜底。\n## 趋势展望\n增加预算控制。\n## 参考引用\nPaper A、Paper B。",
+        "stored_titles": ["Paper A", "Paper B"],
+        "intermediate_steps": [
+          {"name": "search_papers", "status": "success"},
+          {"name": "read_paper", "status": "success"},
+          {"name": "save_to_kb", "status": "success"}
+        ],
+        "trace": {"termination_reason": "recursion_limit", "papers_count": 2, "tool_calls": 3, "duration_ms": 84000}
+      }
+    },
+    {
+      "id": "no_output_fault",
+      "category": "fault_injection",
+      "expected_directions": ["retrieval", "synthesis"],
+      "key_papers": ["RAG"],
+      "expected_tools": ["search_papers", "read_paper"],
+      "min_papers": 1,
+      "expected_gate_pass": false,
+      "snapshot": {
+        "output": "（Agent 未产生文本输出）",
+        "stored_titles": [],
+        "intermediate_steps": [],
+        "trace": {"termination_reason": "no_output", "papers_count": 0, "tool_calls": 0, "duration_ms": 1200}
+      }
+    },
+    {
+      "id": "tool_failure_fault",
+      "category": "fault_injection",
+      "expected_directions": ["dense retrieval", "reranking"],
+      "key_papers": ["DPR", "ColBERT"],
+      "expected_tools": ["search_papers_ranked", "read_paper", "save_to_kb"],
+      "min_papers": 2,
+      "expected_gate_pass": false,
+      "snapshot": {
+        "output": "## 背景概述\n仅得到 dense retrieval。\n## 方向分类\n检索请求失败，未完成综合。",
+        "stored_titles": ["DPR"],
+        "intermediate_steps": [
+          {"name": "search_papers_ranked", "status": "error"},
+          {"name": "read_paper", "status": "error"}
+        ],
+        "trace": {"termination_reason": "exception", "papers_count": 1, "tool_calls": 2, "duration_ms": 31000}
+      }
+    }
+  ]
+}
