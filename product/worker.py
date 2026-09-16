@@ -1,0 +1,80 @@
+"""Independent durable worker. M1 fails abandoned jobs explicitly; M5 adds recovery."""
+import argparse
+import time
+from uuid import uuid4
+from psycopg.types.json import Jsonb
+
+from product.db import connect
+from product.settings import Settings
+from product.llm import respond, classify_error
+
+
+def run_once(settings=None, responder=respond):
+    settings = settings or Settings.load()
+    with connect(settings) as db:
+        abandoned = db.execute("SELECT id,run_id FROM jobs WHERE status='running' AND lease_until<now() FOR UPDATE SKIP LOCKED").fetchall()
+        for job in abandoned:
+            db.execute("UPDATE jobs SET status='failed' WHERE id=%s", (job["id"],))
+            db.execute("UPDATE runs SET status='failed',error_code='worker_interrupted',completed_at=now() WHERE id=%s AND status='running'", (job["run_id"],))
+            db.execute("UPDATE trace_spans SET status='error',error_code='worker_interrupted' WHERE run_id=%s AND status='running'", (job["run_id"],))
+        job = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED").fetchone()
+        if not job:
+            return False
+        token, root_span, model_span = uuid4(), uuid4(), uuid4()
+        db.execute("UPDATE jobs SET status='running',attempt=attempt+1,lease_token=%s,lease_until=now()+interval '120 seconds' WHERE id=%s", (token, job["id"]))
+        run = db.execute("UPDATE runs SET status='running' WHERE id=%s AND status='queued' RETURNING *", (job["run_id"],)).fetchone()
+        if not run:
+            db.execute("UPDATE jobs SET status='failed' WHERE id=%s", (job["id"],))
+            return True
+        rows = db.execute("SELECT id,role,content FROM messages WHERE conversation_id=%s AND owner_id=%s ORDER BY created_at DESC,id DESC LIMIT 12", (run["conversation_id"], run["owner_id"])).fetchall()
+        rows.reverse()
+        # Retain the latest message intact; remove complete older messages as a bounded M1 policy.
+        while len(rows) > 1 and sum(len(row["content"]) for row in rows) > 30000:
+            rows.pop(0)
+        db.execute("INSERT INTO trace_spans(id,run_id,kind,name,status,metadata) VALUES(%s,%s,'run','conversation','running',%s)", (root_span, run["id"], Jsonb({"mode": run["mode"], "attempt": job["attempt"]+1})))
+        db.execute("INSERT INTO trace_spans(id,run_id,parent_span_id,kind,name,status,metadata) VALUES(%s,%s,%s,'model',%s,'running',%s)", (model_span, run["id"], root_span, run["model"], Jsonb({"model": run["model"], "prompt_version": run["prompt_version"], "message_ids": [str(row["id"]) for row in rows], "context_chars": sum(len(row["content"]) for row in rows)})))
+    started = time.monotonic()
+    try:
+        answer = responder([{"role": row["role"], "content": row["content"]} for row in rows], run["mode"], run["model"])
+        duration = int((time.monotonic()-started)*1000)
+        with connect(settings) as db:
+            active = db.execute("SELECT * FROM jobs WHERE id=%s AND lease_token=%s AND status='running' AND lease_until>now() FOR UPDATE", (job["id"], token)).fetchone()
+            if not active:
+                return True
+            current = db.execute("SELECT status FROM runs WHERE id=%s FOR UPDATE", (run["id"],)).fetchone()
+            if current["status"] != "running":
+                return True
+            message_id = uuid4()
+            db.execute("INSERT INTO messages(id,conversation_id,project_id,owner_id,role,content,run_id,mode) VALUES(%s,%s,%s,%s,'assistant',%s,%s,%s)", (message_id, run["conversation_id"], run["project_id"], run["owner_id"], answer.content, run["id"], run["mode"]))
+            db.execute("UPDATE runs SET status='completed',final_message_id=%s,usage=%s,completed_at=now() WHERE id=%s", (message_id, Jsonb(answer.usage), run["id"]))
+            db.execute("UPDATE jobs SET status='completed',lease_until=NULL WHERE id=%s AND lease_token=%s", (job["id"], token))
+            db.execute("UPDATE trace_spans SET status='ok',duration_ms=%s WHERE run_id=%s", (duration, run["id"]))
+            db.execute("UPDATE conversations SET updated_at=now() WHERE id=%s", (run["conversation_id"],))
+        print(f"completed run={run['id']} mode={run['mode']} duration_ms={duration}", flush=True)
+    except Exception as error:
+        code = classify_error(error)
+        duration = int((time.monotonic()-started)*1000)
+        with connect(settings) as db:
+            active = db.execute("UPDATE jobs SET status='failed',lease_until=NULL WHERE id=%s AND lease_token=%s AND status='running' RETURNING id", (job["id"], token)).fetchone()
+            if active:
+                db.execute("UPDATE runs SET status='failed',error_code=%s,completed_at=now() WHERE id=%s", (code, run["id"]))
+                db.execute("UPDATE trace_spans SET status='error',duration_ms=%s,error_code=%s WHERE run_id=%s", (duration, code, run["id"]))
+        print(f"failed run={run['id']} error_code={code}", flush=True)
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--once", action="store_true")
+    args = parser.parse_args()
+    settings = Settings.load()
+    while True:
+        consumed = run_once(settings)
+        if args.once:
+            return
+        if not consumed:
+            time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()

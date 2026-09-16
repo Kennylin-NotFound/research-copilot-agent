@@ -1,5 +1,11 @@
 # 网页产品开发记录
 
+## 当前断点：M1 已通过，M2 文件工作区进行中
+
+2026-09-16：21 项产品测试通过（真实 PostgreSQL、模型替身）；另有网页两次真实 DeepSeek 调用。实际 API/worker 重启后 4 条消息、2 个 Run、4 个 span 保持一致，重新登录、会话归档恢复与项目隔离已在网页验证。证据见 `artifacts/product/M1/acceptance.json` 和 `docs/product/M1_acceptance.md`。
+
+下一步：不可变 blob、Folder/File/FileVersion、文件流式上传与版本管理、页级解析任务和网页文件区；解析完成仅标记待索引。M3 后才允许可检索状态。M2–M7 未通过，未部署服务器。
+
 ## 2026-09-16｜M0 进行中
 
 - 执行入口：`D:/Resume/比特无限/06_Agent产品化方案/04_分阶段开发计划与验收门槛.md`。
