@@ -7,6 +7,7 @@ from psycopg.types.json import Jsonb
 from product.db import connect
 from product.settings import Settings
 from product.llm import respond, classify_error
+from product.file_worker import parse_once
 
 
 def run_once(settings=None, responder=respond):
@@ -70,6 +71,7 @@ def main():
     settings = Settings.load()
     while True:
         consumed = run_once(settings)
+        consumed = parse_once(settings) or consumed
         if args.once:
             return
         if not consumed:

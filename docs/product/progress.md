@@ -4,7 +4,9 @@
 
 2026-09-16：21 项产品测试通过（真实 PostgreSQL、模型替身）；另有网页两次真实 DeepSeek 调用。实际 API/worker 重启后 4 条消息、2 个 Run、4 个 span 保持一致，重新登录、会话归档恢复与项目隔离已在网页验证。证据见 `artifacts/product/M1/acceptance.json` 和 `docs/product/M1_acceptance.md`。
 
-下一步：不可变 blob、Folder/File/FileVersion、文件流式上传与版本管理、页级解析任务和网页文件区；解析完成仅标记待索引。M3 后才允许可检索状态。M2–M7 未通过，未部署服务器。
+M2 已实现：0003 文件迁移、私有 blob、流式大小限制、上传对账记录、文件版本/移动/回收/恢复、PDF/TXT/MD 子进程解析、页/段/chunk 定位、网页文件区。28 项产品测试通过；网页上传了 ReAct PDF（33 页）并预览第 1、2 页，创建并编辑 Markdown 笔记。当前尚未完成 K2 重启及全部网页验收，不标记阶段通过。
+
+恢复期间发现 Docker/API/worker 已退出；正在启动原有环境，保留原卷。PDF `sort=True` 的版式还原给首段插入大量空格并混入边缘文字，已改为保留原内容顺序并提升 parser_version 至 text-2；历史 text-1 版本保留，不伪造已重新解析。下一步补完 M2 验收后进入 M3。M3 后才允许可检索状态。M2–M7 未通过，未部署服务器。
 
 ## 2026-09-16｜M0 进行中
 
@@ -24,3 +26,8 @@
 - 三题真实论文测试和第二模型探测完成。QA Pro 逐条原文复核通过；另外输出的数量/引文问题原样保留，未记为完整 Skills 成功。
 - 智谱 429/1113 是账户欠费；用户充值后同一密钥恢复，embedding-3 实测 2048 维。DeepSeek Pro/Flash、Tavily 均连通。
 - `artifacts/product/M0/acceptance.json` 的全部 K0 检查通过；开始 M1。M1 只验收登录、对话与任务/trace 基础，RAG/Skills/文件功能在后续阶段实现。
+
+
+## 最新断点：M2 通过，进入 M3（2026-09-16）
+
+30 项产品测试通过；网页文件版本、移动、回收恢复、原文预览通过。实际重启后 3 文件/8 版本/480 原文片段及下载 hash 不变。证据：源码 artifacts/product/M2/acceptance.json。下一步 embedding/pgvector/证据问答 Skill/引用回查；M4–M8 未通过。服务管理：scripts/product_services.ps1；本机数据保留，未上云。

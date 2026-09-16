@@ -17,6 +17,7 @@ from product.auth import password_hash, DUMMY_HASH, token_hash, issue_session
 from product.api_schemas import Credentials, Title, ConversationUpdate, SendMessage
 from product.contracts import ProjectState
 from product.llm import PROMPT_VERSION, model_name
+from product.file_api import file_router
 
 
 def create_app(settings: Settings | None = None):
@@ -80,7 +81,7 @@ def create_app(settings: Settings | None = None):
     def health():
         with connect(settings) as db:
             db.execute("SELECT 1")
-        return {"status": "ok", "stage": "M1", "mode": settings.mode}
+        return {"status": "ok", "stage": "M2", "mode": settings.mode}
 
     @app.get("/api/setup")
     def setup_status():
@@ -215,6 +216,7 @@ def create_app(settings: Settings | None = None):
             row["spans"] = db.execute("SELECT * FROM trace_spans WHERE run_id=%s ORDER BY started_at, CASE WHEN parent_span_id IS NULL THEN 0 ELSE 1 END,id", (run_id,)).fetchall()
             return row
 
+    app.include_router(file_router(settings, current_user))
     static_dir = Path(__file__).parent / "web"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

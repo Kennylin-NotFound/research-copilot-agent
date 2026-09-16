@@ -21,6 +21,7 @@
       <div class="section-label">项目空间 <button id="new-project" class="icon-button" title="新建项目" aria-label="新建项目">＋</button></div>
       <select id="projects" aria-label="选择项目"></select>
       <button id="rename-project" class="text-button">重命名项目</button>
+      <button id="open-files" class="new-chat">▤ 项目文件</button>
       <button id="new-conversation" class="new-chat">＋ 新建对话</button>
       <div class="list-heading"><span id="conversation-heading">最近对话</span><button id="toggle-archive" class="text-button">已归档</button></div>
       <input id="conversation-search" class="search" placeholder="搜索当前项目的对话" aria-label="搜索对话">
@@ -38,5 +39,13 @@
     <aside class="inspector"><div class="inspector-heading"><span>运行记录</span><span class="pill">TRACE</span></div><p class="muted small">选择一条回答，查看它对应的模型调用与运行状态。</p><div id="run-list"></div><div id="run-detail" class="run-detail"><div class="inspector-empty">每次回答，<br>都有自己的记录。</div></div></aside>
   </main>
   <dialog id="name-dialog"><form method="dialog" id="name-form"><h3 id="name-title">名称</h3><label>名称<input id="name-input" maxlength="120" required></label><div class="dialog-actions"><button value="cancel" formnovalidate>取消</button><button value="ok" class="primary">确定</button></div></form></dialog>
+  <dialog id="files-dialog" class="files-dialog">
+    <header class="files-header"><div><span class="eyebrow">PROJECT LIBRARY</span><h2>项目文件</h2></div><button id="close-files" class="text-button">关闭 ✕</button></header>
+    <div class="files-toolbar"><button id="upload-file" class="primary">上传资料</button><button id="new-note">新建笔记</button><button id="new-folder">新建目录</button><button id="toggle-trash">回收站</button><span id="file-notice" class="small muted">PDF / TXT / MD · 每份最多 20 MB、100 页</span></div>
+    <input type="file" id="file-input" accept=".pdf,.txt,.md" hidden><input type="file" id="replace-input" accept=".pdf,.txt,.md" hidden>
+    <div class="files-layout"><nav id="folder-tree" aria-label="文件目录"></nav><div id="file-list" aria-label="项目文件列表"></div><section id="file-preview" aria-label="文件预览"><div class="inspector-empty">选择资料，查看原文、版本与解析状态。</div></section></div>
+  </dialog>
+  <dialog id="note-dialog" class="note-dialog"><form id="note-form"><h3 id="note-title">新建笔记</h3><label>文件名<input id="note-name" required maxlength="120" placeholder="reading-notes.md"></label><label>正文<textarea id="note-content" required maxlength="200000" rows="18"></textarea></label><div class="dialog-actions"><button type="button" id="cancel-note">取消</button><button type="submit" class="primary" id="save-note">保存版本</button></div></form></dialog>
+  <script src="/static/files.js" defer></script>
   <div id="toast" class="toast" role="alert" hidden></div>
 </body></html>

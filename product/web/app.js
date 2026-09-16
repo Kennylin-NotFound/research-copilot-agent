@@ -12,7 +12,7 @@ async function api(url, options={}) {
 const json = body => JSON.stringify(body);
 function node(tag, text, className) {const element=document.createElement(tag);if(text!==undefined)element.textContent=text;if(className)element.className=className;return element;}
 let toastTimer;
-function toast(text){$("toast").textContent=text;$("toast").hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$("toast").hidden=true,4500);}
+function toast(text){const dialogs=document.querySelectorAll('dialog[open]');(dialogs[dialogs.length-1]||document.body).append($("toast"));$("toast").textContent=text;$("toast").hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$("toast").hidden=true,4500);}
 async function named(title, current=""){
   const dialog=$("name-dialog");$("name-title").textContent=title;$("name-input").value=current;dialog.returnValue="";dialog.showModal();$("name-input").focus();
   return new Promise(resolve=>dialog.addEventListener("close",()=>resolve(dialog.returnValue==="ok"?$("name-input").value.trim():null),{once:true}));
