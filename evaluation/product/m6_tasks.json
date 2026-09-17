@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "declared_before_execution": true,
+  "holdout_used_for_tuning": false,
+  "quality_rules": [
+    "run completes without unresolved error",
+    "every factual claim passes locator and semantic citation validation",
+    "all references stay inside the selected source set",
+    "required generated artifacts are present",
+    "limitations describe retrieval coverage rather than invented paper facts"
+  ],
+  "tasks": [
+    {"id":"D-QA-01","partition":"development","skill_id":"evidence-qa","files":["react-v3.pdf"],"question":"ReAct 如何定义思考与行动的交错过程？只用论文原文给出不超过四条结论，并说明证据边界。","min_references":2,"expected_artifacts":0,"compare_models":true},
+    {"id":"D-QA-02","partition":"development","skill_id":"evidence-qa","files":["reflexion-v4.pdf"],"question":"Reflexion 如何把反馈转化为后续 episode 可使用的记忆？只根据原文回答。","min_references":2,"expected_artifacts":0},
+    {"id":"D-REV-01","partition":"development","skill_id":"paper-review","files":["react-v3.pdf"],"question":"评议 ReAct 的方法机制、实验依据和当前原文未覆盖的工程边界。每个事实结论必须有直接原文。","min_references":3,"expected_artifacts":3,"compare_models":true},
+    {"id":"D-REV-02","partition":"development","skill_id":"paper-review","files":["reflexion-v4.pdf"],"question":"评议 Reflexion 的反馈、记忆和实验依据；不要把它描述为模型权重微调。","min_references":3,"expected_artifacts":3},
+    {"id":"D-SUR-01","partition":"development","skill_id":"evidence-survey","files":["react-v3.pdf","reflexion-v4.pdf"],"question":"比较 ReAct 与 Reflexion 中语言反馈参与行动改进的机制，分别引用两篇论文，不比较不可比实验的优劣。","min_references":4,"expected_artifacts":3,"compare_models":true},
+    {"id":"D-SUR-02","partition":"development","skill_id":"evidence-survey","files":["react-v3.pdf","reflexion-v4.pdf"],"question":"比较两篇论文如何组织短期推理轨迹与跨 episode 记忆，并明确哪些结论只是产品设计推论。","min_references":4,"expected_artifacts":3},
+    {"id":"D-QA-03","partition":"development","skill_id":"evidence-qa","files":["react-v3.pdf"],"question":"ReAct 在 ALFWorld 中报告了什么结果？给出原文数字和限定条件。","min_references":1,"expected_artifacts":0},
+    {"id":"D-QA-04","partition":"development","skill_id":"evidence-qa","files":["reflexion-v4.pdf"],"question":"Reflexion 在 ALFWorld 中报告了什么结果？只陈述检索原文直接支持的数字。","min_references":1,"expected_artifacts":0},
+    {"id":"H-QA-01","partition":"holdout","skill_id":"evidence-qa","files":["react-v3.pdf"],"question":"ReAct 的 WebShop 实验如何定义任务和评价？回答必须区分任务设定与实验结果。","min_references":2,"expected_artifacts":0},
+    {"id":"H-QA-02","partition":"holdout","skill_id":"evidence-qa","files":["reflexion-v4.pdf"],"question":"现有原文是否支持 Reflexion 通过更新模型权重学习？给出证据化回答，证据不足时明确说不足。","min_references":1,"expected_artifacts":0},
+    {"id":"H-REV-01","partition":"holdout","skill_id":"paper-review","files":["react-v3.pdf"],"question":"从失败恢复和计算成本两个维度评议 ReAct；不能从论文方法直接推导生产可靠性。","min_references":2,"expected_artifacts":3},
+    {"id":"H-SUR-01","partition":"holdout","skill_id":"evidence-survey","files":["react-v3.pdf","reflexion-v4.pdf"],"question":"如果设计研究 Copilot，ReAct 与 Reflexion 分别能支持哪些设计启发？先陈述论文事实，再把启发明确标为推论。","min_references":4,"expected_artifacts":3}
+  ]
+}

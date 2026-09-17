@@ -144,3 +144,24 @@ class AgentTest(unittest.TestCase):
         context=spans[1]['metadata']['decision_context']
         self.assertEqual([row['paper_id'] for row in context['all_selected_sources']],[file['id']])
         self.assertEqual(context['already_read_source_ids'],[])
+
+    def test_live_policy_falls_back_to_validated_unread_source_after_two_invalid_calls(self):
+        project,conv=self.conversation();file=self.indexed(project);rid=self.submit(conv,'paper-review',file)
+        run=self.client.get('/api/runs/'+rid).json()
+        candidate=SimpleNamespace(paper_id=file['id'],url='https://sources.copilot.invalid/'+file['id'],
+                                  status=SimpleNamespace(value='candidate'),
+                                  model_dump=lambda **kwargs:{'paper_id':file['id'],'title':'agent.txt','url':'https://sources.copilot.invalid/'+file['id'],'status':'candidate','abstract':None,'year':None,'discovered_by_query':None})
+        state=SimpleNamespace(candidates=[candidate],selected_paper_ids=[],plan=SimpleNamespace(axes=['方法机制']),
+                              progress=SimpleNamespace(model_dump=lambda **kwargs:{'reads':0,'searches':0,'iterations':0}))
+        invalid=SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(tool_calls=[]),finish_reason='stop')],usage=None)
+        create=Mock(side_effect=[invalid,invalid])
+        client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        live=replace(self.settings,mode='live')
+        with patch('product.research_agent.OpenAI',return_value=client):
+            action=ProductPolicy(live,run,[{'role':'user','content':'Review the selected source.'}],None).decide(state)
+        self.assertEqual(action.action_type,ActionType.DEEP_READ)
+        self.assertEqual(action.arguments['paper_id'],file['id'])
+        self.assertIn('保守回退',action.reason_summary)
+        with connect(self.settings) as db:
+            spans=db.execute("SELECT status,error_code FROM trace_spans WHERE run_id=%s AND name='choose_action' ORDER BY started_at",(rid,)).fetchall()
+        self.assertEqual([(s['status'],s['error_code']) for s in spans],[('error','invalid_decision_tool_call'),('error','invalid_decision_tool_call')])

@@ -17,7 +17,7 @@ from product.embeddings import embed, embedding_model
 from product.llm import ModelAnswer, classify_error
 from product.project_context import context_prompt
 
-PROMPT_VERSION = 'grounded-skills-2026-09-17.13'
+PROMPT_VERSION = 'grounded-skills-2026-09-18.14'
 
 
 class Citation(Contract):
@@ -237,10 +237,25 @@ def generate_grounded(question, evidence, skill, mode, model, feedback=None):
                     if feedback.get('error_code')=='invalid_grounded_schema'
                     else 'Correct every invalid citation against the supplied passages. Copy one short contiguous, complete clause exactly from allowed_verbatim_source, including PDF spacing and symbols. Do not end on a word or clause cut off by the passage boundary; narrow or remove that claim. Return the complete JSON again.')
         messages.append({'role':'user','content':json.dumps({'validation_feedback':feedback,'instruction':correction},ensure_ascii=False)})
-    response=client.chat.completions.create(model=model,temperature=0.1,max_tokens=2000,response_format={'type':'json_object'},extra_body=extra,messages=messages)
+    response=client.chat.completions.create(
+        model=model,
+        temperature=0.1,
+        max_tokens=2000,
+        tools=[{'type':'function','function':{
+            'name':'produce_grounded_answer',
+            'description':'Return the complete evidence-grounded answer using the required typed contract.',
+            'parameters':GroundedAnswer.model_json_schema(),
+        }}],
+        tool_choice={'type':'function','function':{'name':'produce_grounded_answer'}},
+        extra_body=extra,
+        messages=messages,
+    )
     if response.choices[0].finish_reason=='length':
         raise ValueError('truncated_grounded_answer')
-    return GroundedAnswer.model_validate_json(response.choices[0].message.content),response.usage.model_dump() if response.usage else None
+    calls=response.choices[0].message.tool_calls or []
+    if len(calls)!=1 or calls[0].function.name!='produce_grounded_answer':
+        raise ValueError('invalid_grounded_schema')
+    return GroundedAnswer.model_validate_json(calls[0].function.arguments),response.usage.model_dump() if response.usage else None
 
 
 def assess_semantic_support(result, mode, model, evidence=None):
@@ -352,7 +367,7 @@ def run_rag(settings, run, messages, root_span, embedder=embed, generator=genera
                     for key in total_usage:
                         total_usage[key]+=usage.get(key,0)
         except (ValidationError,ValueError) as error:
-            if attempt or (not isinstance(error,ValidationError) and str(error)!='truncated_grounded_answer'):
+            if attempt or (not isinstance(error,ValidationError) and str(error) not in {'truncated_grounded_answer','invalid_grounded_schema'}):
                 raise
             feedback={'error_code':'invalid_grounded_schema','validation_error':str(error)[:1200]}
             snapshot.setdefault('schema_failures',[]).append(feedback)

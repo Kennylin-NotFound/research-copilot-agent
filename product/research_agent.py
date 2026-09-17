@@ -17,7 +17,7 @@ from product.execution import record_action
 from product.llm import ModelAnswer
 from product.rag import span, retrieve, run_rag
 
-PROMPT_VERSION='research-agent-2026-09-17.8'
+PROMPT_VERSION='research-agent-2026-09-18.9'
 
 
 class ProductPolicy:
@@ -80,10 +80,27 @@ class ProductPolicy:
                     details['action']=action.model_dump(mode='json')
                     return action
             except ValueError as error:
-                if attempt or str(error)!='invalid_decision_tool_call':
+                if str(error)!='invalid_decision_tool_call':
                     raise
+                if attempt:
+                    break
                 feedback='The previous response did not call select_research_action exactly once. Return exactly one call to that function, using only supplied source IDs and axes.'
-        raise ValueError('invalid_decision_tool_call')
+        # Tool-choice transport can still occasionally return no usable call.
+        # The selected source scope and read order are already validated, so a
+        # deterministic conservative action is safer than failing the run.
+        if unread:
+            candidate=unread[0]
+            return AgentAction(
+                action_type=ActionType.DEEP_READ,
+                tool_name='read_paper',
+                target_axis=state.plan.axes[0],
+                arguments={'paper_id':candidate.paper_id,'paper_url':candidate.url},
+                reason_summary='模型路由两次无效；按已验证的未读来源顺序执行保守回退。',
+                expected_evidence_gain='unknown')
+        return AgentAction(
+            action_type=ActionType.STOP,
+            reason_summary='模型路由两次无效；没有未读来源，按已验证状态停止。',
+            expected_evidence_gain='unknown')
 
 
 class LocalGateway:

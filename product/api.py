@@ -16,7 +16,7 @@ from psycopg.types.json import Jsonb
 from product.settings import Settings
 from product.db import connect, migrate
 from product.auth import password_hash, DUMMY_HASH, token_hash, issue_session
-from product.api_schemas import Credentials, Title, ConversationUpdate, SendMessage
+from product.api_schemas import Credentials, Title, ConversationUpdate, SendMessage, FeedbackInput
 from product.contracts import ProjectState
 from product.llm import PROMPT_VERSION, model_name
 from product.file_api import file_router
@@ -24,6 +24,8 @@ from product.skills_registry import AVAILABLE, load_skill
 from product import rag
 from product.project_context import context_router, snapshot as project_snapshot
 from product.execution import append_event
+from product.model_registry import available_models, resolve_model
+from product.observability import configured_secrets, redact
 
 
 def create_app(settings: Settings | None = None):
@@ -87,7 +89,7 @@ def create_app(settings: Settings | None = None):
     def health():
         with connect(settings) as db:
             db.execute("SELECT 1")
-        return {"status": "ok", "stage": "M5-dev", "mode": settings.mode}
+        return {"status": "ok", "stage": "M6-dev", "mode": settings.mode}
 
     @app.get("/api/setup")
     def setup_status():
@@ -183,7 +185,7 @@ def create_app(settings: Settings | None = None):
     def messages(conversation_id: UUID, user=Depends(current_user)):
         with connect(settings) as db:
             conversation_owned(db, conversation_id, user)
-            return db.execute("SELECT m.id,m.role,m.content,m.run_id,m.mode,m.created_at,CASE WHEN m.role='assistant' THEN r.result_json ELSE NULL END result_json FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=%s AND m.owner_id=%s ORDER BY m.created_at,m.id", (conversation_id, user["id"])).fetchall()
+            return db.execute("SELECT m.id,m.role,m.content,m.run_id,m.mode,m.created_at,CASE WHEN m.role='assistant' THEN r.result_json ELSE NULL END result_json,COALESCE((SELECT f.rating FROM feedback f WHERE f.message_id=m.id AND f.owner_id=m.owner_id AND f.artifact_version_id IS NULL ORDER BY f.updated_at DESC LIMIT 1),0) feedback_rating FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=%s AND m.owner_id=%s ORDER BY m.created_at,m.id", (conversation_id, user["id"])).fetchall()
 
     @app.post("/api/conversations/{conversation_id}/messages", status_code=202)
     def send_message(conversation_id: UUID, body: SendMessage, user=Depends(current_user)):
@@ -193,7 +195,9 @@ def create_app(settings: Settings | None = None):
             existing = db.execute("SELECT id,content,run_id FROM messages WHERE conversation_id=%s AND client_message_id=%s AND owner_id=%s", (conversation_id, body.client_message_id, user["id"])).fetchone()
             if existing:
                 prior = db.execute('SELECT request_options,skill_id FROM runs WHERE id=%s',(existing['run_id'],)).fetchone()
-                if existing["content"] != body.content or prior['skill_id'] != body.skill_id or prior['request_options'].get('file_ids') != ([str(i) for i in body.file_ids] if body.file_ids is not None else None):
+                if (existing["content"] != body.content or prior['skill_id'] != body.skill_id
+                        or prior['request_options'].get('file_ids') != ([str(i) for i in body.file_ids] if body.file_ids is not None else None)
+                        or prior['request_options'].get('model_id','default') != body.model_id):
                     raise HTTPException(409, "idempotency_content_conflict")
                 return {"message_id": existing["id"], "run_id": existing["run_id"], "deduplicated": True}
             if conversation["archived"]:
@@ -206,8 +210,9 @@ def create_app(settings: Settings | None = None):
                     raise HTTPException(404,'selected_file_not_found')
             message_id, run_id, trace_id = uuid4(), uuid4(), uuid4()
             db.execute("INSERT INTO messages(id,conversation_id,project_id,owner_id,role,content,client_message_id,mode) VALUES(%s,%s,%s,%s,'user',%s,%s,%s)", (message_id, conversation_id, project["id"], user["id"], body.content, body.client_message_id, settings.mode))
-            db.execute("INSERT INTO runs(id,trace_id,conversation_id,project_id,owner_id,user_message_id,project_revision,status,mode,model,prompt_version) VALUES(%s,%s,%s,%s,%s,%s,%s,'queued',%s,%s,%s)", (run_id, trace_id, conversation_id, project["id"], user["id"], message_id, project["revision"], settings.mode, model_name(settings.mode), PROMPT_VERSION))
-            options={'file_ids':[str(i) for i in body.file_ids] if body.file_ids is not None else None}
+            chosen_model=model_name(settings.mode) if settings.mode=='mock' else resolve_model(body.model_id)
+            db.execute("INSERT INTO runs(id,trace_id,conversation_id,project_id,owner_id,user_message_id,project_revision,status,mode,model,prompt_version) VALUES(%s,%s,%s,%s,%s,%s,%s,'queued',%s,%s,%s)", (run_id, trace_id, conversation_id, project["id"], user["id"], message_id, project["revision"], settings.mode, chosen_model, PROMPT_VERSION))
+            options={'file_ids':[str(i) for i in body.file_ids] if body.file_ids is not None else None,'model_id':body.model_id}
             snapshot=load_skill(body.skill_id) if body.skill_id else None
             db.execute('UPDATE runs SET skill_id=%s,skill_snapshot=%s,request_options=%s,prompt_version=%s WHERE id=%s',(body.skill_id,Jsonb(snapshot) if snapshot else None,Jsonb(options),rag.PROMPT_VERSION if snapshot else PROMPT_VERSION,run_id))
             db.execute('UPDATE runs SET project_snapshot=%s WHERE id=%s',(Jsonb(project_snapshot(db,project)),run_id))
@@ -233,7 +238,36 @@ def create_app(settings: Settings | None = None):
             context=db.execute('SELECT context FROM context_snapshots WHERE run_id=%s',(run_id,)).fetchone()
             row['context_snapshot']=context['context'] if context else None
             row['actions']=db.execute("SELECT action_id,attempt,action_type,status,result_summary,error_code,created_at,updated_at FROM action_records WHERE run_id=%s ORDER BY created_at,action_id,attempt",(run_id,)).fetchall()
-            return row
+            row['feedback']=db.execute("SELECT id,message_id,artifact_version_id,rating,note,created_at,updated_at FROM feedback WHERE run_id=%s AND owner_id=%s ORDER BY created_at,id",(run_id,user['id'])).fetchall()
+            return redact(row,configured_secrets(Path(__file__).resolve().parents[1]))
+
+    @app.get("/api/runs/{run_id}/export")
+    def export_run(run_id: UUID, user=Depends(current_user)):
+        with connect(settings) as db:
+            run=db.execute("SELECT id,trace_id,conversation_id,project_id,project_revision,status,mode,model,prompt_version,skill_id,error_code,usage,created_at,completed_at,request_options,skill_snapshot,result_json,project_snapshot FROM runs WHERE id=%s AND owner_id=%s",(run_id,user['id'])).fetchone()
+            if not run:
+                raise HTTPException(404,"run_not_found")
+            payload={
+                'schema_version':1,'run':run,
+                'spans':db.execute("SELECT id,parent_span_id,kind,name,status,metadata,started_at,duration_ms,error_code FROM trace_spans WHERE run_id=%s ORDER BY started_at,id",(run_id,)).fetchall(),
+                'actions':db.execute("SELECT action_id,attempt,action_type,status,request_fingerprint,result_summary,error_code,created_at,updated_at FROM action_records WHERE run_id=%s ORDER BY created_at,action_id,attempt",(run_id,)).fetchall(),
+                'events':db.execute("SELECT seq,event_type,payload,created_at FROM run_events WHERE run_id=%s ORDER BY seq",(run_id,)).fetchall(),
+                'citations':db.execute("SELECT ordinal,chunk_id,quote FROM run_citations WHERE run_id=%s ORDER BY ordinal",(run_id,)).fetchall(),
+                'feedback':db.execute("SELECT message_id,artifact_version_id,rating,note,created_at FROM feedback WHERE run_id=%s AND owner_id=%s ORDER BY created_at,id",(run_id,user['id'])).fetchall(),
+            }
+        return redact(payload,configured_secrets(Path(__file__).resolve().parents[1]))
+
+    @app.post("/api/messages/{message_id}/feedback")
+    def save_feedback(message_id: UUID, body: FeedbackInput, user=Depends(current_user)):
+        with connect(settings) as db:
+            message=db.execute("SELECT m.*,r.id run_identity FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.id=%s AND m.owner_id=%s AND m.role='assistant'",(message_id,user['id'])).fetchone()
+            if not message:
+                raise HTTPException(404,"assistant_message_not_found")
+            if body.artifact_version_id:
+                artifact=db.execute("SELECT id FROM file_versions WHERE id=%s AND owner_id=%s AND project_id=%s AND source_run_id=%s",(body.artifact_version_id,user['id'],message['project_id'],message['run_identity'])).fetchone()
+                if not artifact:
+                    raise HTTPException(404,"artifact_version_not_found")
+            return db.execute("INSERT INTO feedback(id,owner_id,project_id,message_id,run_id,artifact_version_id,rating,note) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(owner_id,message_id,artifact_version_id) DO UPDATE SET rating=excluded.rating,note=excluded.note,updated_at=now() RETURNING id,message_id,run_id,artifact_version_id,rating,note,created_at,updated_at",(uuid4(),user['id'],message['project_id'],message_id,message['run_identity'],body.artifact_version_id,body.rating,body.note)).fetchone()
 
     @app.post("/api/runs/{run_id}/cancel")
     def cancel_run(run_id: UUID, user=Depends(current_user)):
@@ -287,6 +321,10 @@ def create_app(settings: Settings | None = None):
     @app.get('/api/skills')
     def skills(user=Depends(current_user)):
         return [{k:v for k,v in load_skill(identity).items() if k!='body'} for identity in AVAILABLE]
+
+    @app.get('/api/models')
+    def models(user=Depends(current_user)):
+        return available_models() if settings.mode=='live' else [{'id':'default','name':'mock-conversation','purpose':'开发替身'}]
 
     @app.get('/api/chunks/{chunk_id}')
     def chunk(chunk_id: UUID,user=Depends(current_user)):

@@ -24,3 +24,10 @@ class SendMessage(Contract):
     client_message_id: UUID
     skill_id: Literal['evidence-qa','paper-review','evidence-survey'] | None = None
     file_ids: list[UUID] | None = Field(default=None,max_length=10)
+    model_id: Literal['default','fast'] = 'default'
+
+
+class FeedbackInput(Contract):
+    rating: Literal[-1,1]
+    note: str | None = Field(default=None,max_length=2000)
+    artifact_version_id: UUID | None = None
