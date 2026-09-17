@@ -1,0 +1,1 @@
+{"schema_version":1,"skill_id":"paper-review","version":"2026-09-17.3","tools":["retrieve_evidence","read_chunks","write_artifact"],"output_type":"review","budget":{"max_steps":5,"max_searches":0,"max_new_reads":3,"max_retries":1,"timeout_seconds":180,"max_output_tokens":2000,"max_total_tokens":40000}}

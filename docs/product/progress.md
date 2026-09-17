@@ -1,11 +1,19 @@
 # 网页产品开发记录
 
-## 当前断点：M3 已通过，进入 M4（2026-09-17）
+## 当前断点：M4 已通过，进入 M5（2026-09-18）
 
-M0–M2 已验收并提交（ffed885、c8e5fe0、63398dd）。M3 原文 RAG、索引、首个 Skill、引用回查已通过 K3；41 项隔离 PostgreSQL 产品测试通过，PDF/TXT/MD 与无证据真实 API 案例已复核，网页 TXT 选源问答与引用原文预览通过。详见 docs/product/M3_acceptance.md 和 artifacts/product/M3/acceptance.json。
+M0–M3 已验收并提交（`ffed885`、`c8e5fe0`、`63398dd`、`2a7ddb1`）。M4 已完成三个 Skills、多轮 Agent 决策、项目 revision、显式 Memory、ContextSnapshot 和版本化成果；59 项隔离 PostgreSQL 产品测试通过，三个真实论文任务、模糊需求追问、状态/成果失效与人工引文语义复核通过。详细记录见 `docs/product/M4_acceptance.md` 与 `artifacts/product/M4/acceptance.json`。
 
-本机 API http://127.0.0.1:18080，worker/live、Docker 原数据库卷已恢复；启动管理 scripts/product_services.ps1。不要输出 .env 或 .local/dev.env。智谱充值后同一 key 已恢复，不需新 key。
+本机 API 为 `http://127.0.0.1:18080`，live worker 与 Docker 数据卷保留；使用 `scripts/product_services.ps1` 管理服务。不要输出 `.env` 或 `.local/dev.env`。M7 `LOCAL_READY` 前不上云。
 
-下一步按 K4：三个 Skills、v2 Agent 状态图适配、追问/执行/修改、revision 与 Memory、生成成果。M4–M7 未通过；M7 LOCAL_READY 前不上云。浏览器标注层遮挡鼠标，本次键盘 GUI 完成；M7 复核普通鼠标交互。
+## M4 失败记录与 GUI 收尾
 
-历史阶段证据分别在 artifacts/product/M0–M3，初次真实模型失败保留，不把受控测试宣称为生产效果。
+界面中保留的失败 Run `b24c0b43-3fa2-493a-a0e6-1a7750557cf9` 不是服务中断：它在两次生成后均被确定性引用校验以 `citation_truncated_quote` 拒绝。随后加入不完整 chunk 尾部裁剪、截断引文检查与有限修复；同一证据综述任务由 Run `a2dd9a52-a037-4e4c-bb29-a7a4c34ba056` 成功完成。失败记录保留为可观察性证据。
+
+用户报告 M4 GUI 基本流程通过，并指出两个导航问题。网页已调整为仅在 Agent 回答下展示“查看运行记录”；点击右侧运行会滚动并短暂高亮对应回答，回答侧入口会选中右侧 Trace。JS 语法及完整 59 项产品测试回归通过；普通鼠标完整复核仍纳入 M7 总验收。
+
+## 下一步
+
+按 K5 完成持久任务租约、可恢复执行、RunEvent/SSE 重放、协作取消、旧 revision/attempt 发布保护、超时/重试/降级和并发配额。M5–M7 尚未通过；M7 完成本机 GUI、故障、容器、备份恢复和发布冻结后，才进入 M8 服务器部署。
+
+历史真实失败样例继续保留；模拟测试、人工复核与生产可靠性分别陈述。

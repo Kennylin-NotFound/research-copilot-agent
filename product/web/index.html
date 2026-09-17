@@ -22,6 +22,7 @@
       <select id="projects" aria-label="选择项目"></select>
       <button id="rename-project" class="text-button">重命名项目</button>
       <button id="open-files" class="new-chat">▤ 项目文件</button>
+      <button id="open-context" class="new-chat">◎ 项目目标与记忆</button>
       <button id="new-conversation" class="new-chat">＋ 新建对话</button>
       <div class="list-heading"><span id="conversation-heading">最近对话</span><button id="toggle-archive" class="text-button">已归档</button></div>
       <input id="conversation-search" class="search" placeholder="搜索当前项目的对话" aria-label="搜索对话">
@@ -34,9 +35,9 @@
         <div class="empty" id="welcome"><div class="empty-icon">✳</div><h1>让问题变得清晰。</h1><p>新建项目和对话，描述你的研究目标。<br>你可以随时返回，继续之前的思考。</p><div class="starter">从这里开始 <span>↙</span></div></div>
         <div id="messages"></div>
       </div>
-      <div class="composer-wrap"><div class="agent-controls"><label>工作方式<select id="skill-select" aria-label="选择 Skill"><option value="">对话与澄清</option><option value="evidence-qa">证据问答</option></select></label><details id="source-scope"><summary id="source-summary">全部可用资料</summary><div class="source-menu"><label><input id="source-all" type="checkbox" checked>全部可用资料</label><div id="source-options"></div><p class="small muted">仅检索当前项目已完成索引的资料；个人笔记会单独标注。</p></div></details></div><p id="status-line" class="status-line" role="status"></p><form id="message-form" class="composer"><textarea id="message-input" rows="3" maxlength="12000" placeholder="描述你的研究问题，或继续之前的讨论……" aria-label="消息" required></textarea><div class="composer-bottom"><span class="small muted">Shift + Enter 换行</span><button id="send" class="primary" type="submit">发送 ↑</button></div></form><div class="composer-note">原文证据可回查 · 引用需要结合原文判断</div></div>
+      <div class="composer-wrap"><div class="agent-controls"><label>工作方式<select id="skill-select" aria-label="选择 Skill"><option value="">对话与澄清</option><option value="evidence-qa">证据问答</option><option value="paper-review">论文评议</option><option value="evidence-survey">证据综述</option></select></label><details id="source-scope"><summary id="source-summary">全部可用资料</summary><div class="source-menu"><label><input id="source-all" type="checkbox" checked>全部可用资料</label><div id="source-options"></div><p class="small muted">仅检索当前项目已完成索引的资料；个人笔记会单独标注。</p></div></details></div><p id="status-line" class="status-line" role="status"></p><form id="message-form" class="composer"><textarea id="message-input" rows="3" maxlength="12000" placeholder="描述你的研究问题，或继续之前的讨论……" aria-label="消息" required></textarea><div class="composer-bottom"><span class="small muted">Shift + Enter 换行</span><button id="send" class="primary" type="submit">发送 ↑</button></div></form><div class="composer-note">原文证据可回查 · 引用需要结合原文判断</div></div>
     </section>
-    <aside class="inspector"><div class="inspector-heading"><span>运行记录</span><span class="pill">TRACE</span></div><p class="muted small">选择一条回答，查看它对应的模型调用与运行状态。</p><div id="run-list"></div><div id="run-detail" class="run-detail"><div class="inspector-empty">每次回答，<br>都有自己的记录。</div></div></aside>
+    <aside class="inspector"><div class="inspector-heading"><span>运行记录</span><span class="pill">TRACE</span></div><p class="muted small">选择一条回答，查看决策、工具、模型、引用校验与成果记录。</p><div id="run-list"></div><div id="run-detail" class="run-detail"><div class="inspector-empty">每次回答，<br>都有自己的记录。</div></div></aside>
   </main>
   <dialog id="name-dialog"><form method="dialog" id="name-form"><h3 id="name-title">名称</h3><label>名称<input id="name-input" maxlength="120" required></label><div class="dialog-actions"><button value="cancel" formnovalidate>取消</button><button value="ok" class="primary">确定</button></div></form></dialog>
   <dialog id="files-dialog" class="files-dialog">
@@ -48,5 +49,7 @@
   <dialog id="note-dialog" class="note-dialog"><form id="note-form"><h3 id="note-title">新建笔记</h3><label>文件名<input id="note-name" required maxlength="120" placeholder="reading-notes.md"></label><label>正文<textarea id="note-content" required maxlength="200000" rows="18"></textarea></label><div class="dialog-actions"><button type="button" id="cancel-note">取消</button><button type="submit" class="primary" id="save-note">保存版本</button></div></form></dialog>
   <script src="/static/files.js" defer></script>
   <script src="/static/rag.js" defer></script>
+  <dialog id="context-dialog" class="note-dialog" aria-label="项目目标与记忆"><header class="files-header"><h3>项目目标与记忆</h3><button id="close-context" type="button">关闭</button></header><p id="context-revision" class="small muted"></p><form id="context-form"><label>研究目标<textarea id="context-objective" maxlength="4000" rows="3"></textarea></label><label>研究维度（每行一个）<textarea id="context-dimensions" rows="4"></textarea></label><button class="primary" type="submit">保存项目要求</button></form><h4>明确保存的偏好</h4><p class="small muted">仅在此项目内使用。撤销后不再注入后续任务，历史记录仍保留。</p><div id="memory-list"></div><form id="memory-form"><label>新增偏好<textarea id="memory-content" required maxlength="1000" rows="2"></textarea></label><button type="submit">记住这条偏好</button></form><h4>修改记录</h4><div id="context-history" class="small"></div></dialog>
+  <script src="/static/context.js" defer></script>
   <div id="toast" class="toast" role="alert" hidden></div>
 </body></html>

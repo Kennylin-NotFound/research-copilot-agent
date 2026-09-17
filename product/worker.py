@@ -10,6 +10,10 @@ from product.llm import respond, classify_error
 from product.file_worker import parse_once
 from product.index_worker import index_once
 from product.rag import run_rag, sources_current
+from product.project_context import context_prompt
+from product.request_intent import classify_message, apply_revision
+from product.research_agent import run_research
+from product.artifacts import publish_artifacts
 
 
 def run_once(settings=None, responder=respond):
@@ -39,18 +43,36 @@ def run_once(settings=None, responder=respond):
             db.execute("INSERT INTO trace_spans(id,run_id,parent_span_id,kind,name,status,metadata) VALUES(%s,%s,%s,'model',%s,'running',%s)", (model_span, run["id"], root_span, run["model"], Jsonb({"model": run["model"], "prompt_version": run["prompt_version"], "message_ids": [str(row["id"]) for row in rows], "context_chars": sum(len(row["content"]) for row in rows)})))
     started = time.monotonic()
     try:
-        answer = run_rag(settings,run,rows,root_span) if run['skill_id'] else responder([{"role": row["role"], "content": row["content"]} for row in rows], run["mode"], run["model"])
+        intent,intent_usage=classify_message(settings,run,rows[-1]['content'],root_span)
+        run=apply_revision(settings,run,intent,root_span)
+        conversation_messages=[{"role": row["role"], "content": row["content"]} for row in rows]
+        if run.get('project_snapshot'):
+            conversation_messages.insert(0,{'role':'system','content':context_prompt(run['project_snapshot'])})
+        if run['skill_id'] in {'paper-review','evidence-survey'}:
+            answer=run_research(settings,run,rows,root_span)
+        else:
+            answer = run_rag(settings,run,rows,root_span) if run['skill_id'] else responder(conversation_messages, run["mode"], run["model"])
+        if intent_usage:
+            answer.usage=answer.usage or {'prompt_tokens':0,'completion_tokens':0,'total_tokens':0}
+            for key in ('prompt_tokens','completion_tokens','total_tokens'):
+                answer.usage[key]=answer.usage.get(key,0)+intent_usage.get(key,0)
         duration = int((time.monotonic()-started)*1000)
         with connect(settings) as db:
-            db.execute('SELECT id FROM projects WHERE id=%s FOR UPDATE',(run['project_id'],))
+            project=db.execute('SELECT id,revision FROM projects WHERE id=%s FOR UPDATE',(run['project_id'],)).fetchone()
             active = db.execute("SELECT * FROM jobs WHERE id=%s AND lease_token=%s AND status='running' AND lease_until>now() FOR UPDATE", (job["id"], token)).fetchone()
             if not active:
                 return True
             current = db.execute("SELECT status FROM runs WHERE id=%s FOR UPDATE", (run["id"],)).fetchone()
             if current["status"] != "running":
                 return True
+            if project['revision']!=run['project_revision']:
+                raise ValueError('project_changed_before_publication')
             if answer.result and not sources_current(db,answer.result,run['owner_id'],run['project_id']):
                 raise ValueError('source_changed_before_publication')
+            artifacts=publish_artifacts(db,settings,run,answer)
+            if artifacts:
+                answer.result['artifacts']=artifacts
+                db.execute("INSERT INTO trace_spans(id,run_id,parent_span_id,kind,name,status,metadata) VALUES(%s,%s,%s,'artifact','write_artifact','ok',%s)",(uuid4(),run['id'],root_span,Jsonb({'artifacts':artifacts})))
             message_id = uuid4()
             db.execute("INSERT INTO messages(id,conversation_id,project_id,owner_id,role,content,run_id,mode) VALUES(%s,%s,%s,%s,'assistant',%s,%s,%s)", (message_id, run["conversation_id"], run["project_id"], run["owner_id"], answer.content, run["id"], run["mode"]))
             db.execute("UPDATE runs SET status='completed',final_message_id=%s,usage=%s,result_json=%s,completed_at=now() WHERE id=%s", (message_id, Jsonb(answer.usage), Jsonb(answer.result) if answer.result else None, run["id"]))

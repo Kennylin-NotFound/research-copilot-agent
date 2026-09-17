@@ -121,7 +121,7 @@ class FileVersion(Contract):
     size_bytes: int = Field(gt=0, le=20 * 1024 * 1024)
     kind: Literal["original", "user_note", "generated"]
     media_type: Literal["application/pdf", "text/plain", "text/markdown", "text/csv", "application/json"]
-    status: Literal["uploaded", "parsing", "pending_index", "ready", "failed", "revoked"]
+    status: Literal["uploaded", "parsing", "pending_index", "ready", "failed", "revoked", "published"]
     parser_version: str | None = None
     embedding_model: str | None = None
     embedding_dimension: int | None = Field(default=None, ge=1)
@@ -130,6 +130,8 @@ class FileVersion(Contract):
     def ready_requires_index(self):
         if self.status == "ready" and (self.kind == "generated" or not all((self.parser_version, self.embedding_model, self.embedding_dimension))):
             raise ValueError("Search-ready requires parsed original/note content and a completed embedding index")
+        if self.status == "published" and self.kind != "generated":
+            raise ValueError("Only generated artifacts can be published")
         return self
 
 

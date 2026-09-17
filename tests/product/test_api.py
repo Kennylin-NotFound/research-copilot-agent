@@ -182,8 +182,8 @@ class ApiTest(unittest.TestCase):
             seen.extend(messages)
             return ModelAnswer("已回顾", None)
         run_once(self.settings, responder=capture)
-        self.assertEqual([m["role"] for m in seen], ["user", "assistant", "user"])
-        self.assertEqual(seen[0]["content"], "研究目标是可靠性")
+        self.assertEqual([m["role"] for m in seen], ["system", "user", "assistant", "user"])
+        self.assertEqual(seen[1]["content"], "研究目标是可靠性")
 
 
 if __name__ == "__main__":

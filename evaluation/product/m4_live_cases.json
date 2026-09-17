@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {
+      "id": "evidence-qa-react",
+      "skill_id": "evidence-qa",
+      "files": ["react-v3.pdf"],
+      "question": "ReAct 的核心动作空间设计是什么？请只根据所选论文原文给出简明结论，并说明当前证据边界。",
+      "expected_artifacts": 0,
+      "requires_graph": false
+    },
+    {
+      "id": "paper-review-react",
+      "skill_id": "paper-review",
+      "files": ["react-v3.pdf"],
+      "question": "围绕当前项目的三个研究维度评议 ReAct：先给结论，分别说明方法机制、实验依据和局限。事实结论必须引用所选论文原文，不要推断生产可靠性。",
+      "expected_artifacts": 3,
+      "requires_graph": true
+    },
+    {
+      "id": "evidence-survey-react-reflexion",
+      "skill_id": "evidence-survey",
+      "files": ["react-v3.pdf", "reflexion-v4.pdf"],
+      "question": "比较 ReAct 与 Reflexion 如何利用语言反馈改进行动。按方法机制、实验依据、局限组织简明证据综述；跨论文比较必须引用双方原文。",
+      "expected_artifacts": 3,
+      "requires_graph": true
+    }
+  ]
+}

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from product.contracts import SkillRuntime
 
-AVAILABLE = ('evidence-qa',)
+AVAILABLE = ('evidence-qa','paper-review','evidence-survey')
 
 
 def load_skill(identity):

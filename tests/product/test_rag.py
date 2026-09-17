@@ -7,7 +7,9 @@ from product.db import connect
 from product.file_worker import parse_once
 from product.index_worker import index_once
 from product.embeddings import embed, validate_vector
-from product.rag import retrieve, validate_citations, GroundedAnswer, GroundedClaim, Citation, run_rag
+from product.rag import (retrieve, validate_citations, GroundedAnswer, GroundedClaim,
+                         Citation, run_rag, normalize_quote, canonical_source_quote,
+                         SemanticAssessment, quote_looks_truncated, trim_retrieved_chunk_tail)
 from product.worker import run_once
 
 
@@ -17,6 +19,30 @@ class RagTest(unittest.TestCase):
     tearDown=files_base.FilesTest.tearDown
     conversation=files_base.FilesTest.conversation
     upload=files_base.FilesTest.upload
+
+    def test_quote_normalization_preserves_identifier_hyphen_but_joins_wrapped_word(self):
+        self.assertEqual(normalize_quote('PaLM-\n540B'), 'PaLM540B')
+        self.assertEqual(normalize_quote('PaLM-540B'), 'PaLM540B')
+        self.assertEqual(normalize_quote('high-\nlevel'), 'highlevel')
+        restored,repaired=canonical_source_quote(
+            'competitive with chain-of-thought reasoning (CoT). The best approach',
+            'competitive with chain-of-\nthought reasoning (CoT) (Wei et al., 2022). The best approach')
+        self.assertTrue(repaired)
+        self.assertIn('(Wei et al., 2022)',restored)
+        self.assertEqual(canonical_source_quote('unsupported deletion here','different source'),(None,False))
+        restored,repaired=canonical_source_quote('Generate reflection; Append to memory','Generate reflection\nAppend to memory')
+        self.assertTrue(repaired);self.assertEqual(restored,'Generate reflection Append to memory')
+        self.assertEqual(normalize_quote('ˆ\nA = A'),normalize_quote('ˆA = A'))
+        restored,repaired=canonical_source_quote(
+            'After each trial, reflection is appended to memory. In practice, memory is bounded by a maximum capacity.',
+            'After each trial, reflection is appended to memory. In practice, memory is b')
+        self.assertTrue(repaired);self.assertEqual(restored,'After each trial, reflection is appended to memory.')
+        self.assertTrue(quote_looks_truncated('additional information into rea','full clause ends with additional information into rea'))
+        self.assertTrue(quote_looks_truncated('perform arithmetic reasoning, guide','perform arithmetic reasoning, guide\n2Footnote'))
+        self.assertFalse(quote_looks_truncated('create, maintain, and adjust high-level plans for acting','longer source with create, maintain, and adjust high-level plans for acting before more text'))
+        self.assertEqual(trim_retrieved_chunk_tail('plans for acting, while incorporating data into rea'),'plans for acting')
+        self.assertEqual(trim_retrieved_chunk_tail('arithmetic reasoning, guide\n2We find more examples.\n4'),'arithmetic reasoning')
+        self.assertEqual(trim_retrieved_chunk_tail('complete claim without punctuation'),'complete claim without punctuation')
 
     def indexed(self,project,name='agent.txt',text=b'Agent actions collect observations. Reasoning updates the plan.'):
         response=self.upload(project,name,text)
@@ -150,9 +176,67 @@ class RagTest(unittest.TestCase):
         self.assertEqual(detail['status'],'completed')
         self.assertEqual(len(calls),2)
         self.assertEqual(calls[1]['error_code'],'citation_quote_mismatch')
+        self.assertEqual(calls[1]['allowed_verbatim_source'],'Agent actions collect observations. Reasoning updates the plan.')
+        self.assertEqual(calls[1]['invalid_quote'],'Invented unsupported quotation')
         self.assertEqual(len(detail['context_snapshot']['model_candidates']),2)
         self.assertTrue(any(s['error_code']=='citation_quote_mismatch' for s in detail['spans']))
         self.assertEqual(detail['usage']['total_tokens'],40)
+
+    def test_invalid_structured_output_gets_one_bounded_correction(self):
+        project,conv=self.conversation();file=self.indexed(project);calls=[]
+        def generator(question,evidence,skill,mode,model,feedback):
+            calls.append(feedback)
+            if len(calls)==1:
+                GroundedAnswer.model_validate({'claims':'not-a-list','insufficient_evidence':False})
+            return GroundedAnswer(claims=[GroundedClaim(statement='Agent actions collect observations.',citations=[Citation(chunk_id=evidence[0]['id'],quote='Agent actions collect observations.')])],insufficient_evidence=False),None
+        run=self.client.post(f"/api/conversations/{conv['id']}/messages",json={'content':'What do actions do?','client_message_id':str(uuid4()),'skill_id':'evidence-qa','file_ids':[file['id']]}).json()
+        with patch('product.worker.run_rag',side_effect=lambda s,r,m,root:run_rag(s,r,m,root,generator=generator)):
+            run_once(self.settings)
+        detail=self.client.get(f"/api/runs/{run['run_id']}").json()
+        self.assertEqual(detail['status'],'completed',detail.get('error_code'))
+        self.assertEqual(calls[1]['error_code'],'invalid_grounded_schema')
+        self.assertEqual(len(detail['context_snapshot']['schema_failures']),1)
+        self.assertTrue(any(s['name']==detail['model'] and s['status']=='error' and s['error_code']=='schema_error' for s in detail['spans']))
+
+    def test_semantic_support_failure_gets_one_bounded_correction(self):
+        project,conv=self.conversation();file=self.indexed(project)
+        generator_feedback=[];judge_calls=[]
+        def generator(question,evidence,skill,mode,model,feedback):
+            generator_feedback.append(feedback)
+            statement='Proven reliable for millions of production users.' if len(generator_feedback)==1 else 'Agent actions collect observations.'
+            return GroundedAnswer(claims=[GroundedClaim(statement=statement,citations=[Citation(chunk_id=evidence[0]['id'],quote='Agent actions collect observations.')])],insufficient_evidence=False),None
+        def judge(result,mode,model):
+            judge_calls.append(result['claims'][0]['statement'])
+            supported=len(judge_calls)>1
+            return SemanticAssessment(claim_supported=[supported],limitations_scoped=True,limitations_consistent=True,reasons=[] if supported else ['Production reliability is absent from the quote.']),None
+        run=self.client.post(f"/api/conversations/{conv['id']}/messages",json={'content':'What do actions do?','client_message_id':str(uuid4()),'skill_id':'evidence-qa','file_ids':[file['id']]}).json()
+        with patch('product.worker.run_rag',side_effect=lambda s,r,m,root:run_rag(s,r,m,root,generator=generator,semantic_validator=judge)):
+            run_once(self.settings)
+        detail=self.client.get(f"/api/runs/{run['run_id']}").json()
+        self.assertEqual(detail['status'],'completed',detail.get('error_code'))
+        self.assertEqual(generator_feedback[1]['error_code'],'citation_semantic_mismatch')
+        self.assertEqual(len(detail['context_snapshot']['semantic_assessments']),2)
+        self.assertEqual(detail['result_json']['references'][0]['semantic_support'],'llm_checked')
+
+    def test_semantic_support_twice_removes_only_unsupported_claim(self):
+        project,conv=self.conversation();file=self.indexed(project);generator_calls=[]
+        def generator(question,evidence,skill,mode,model,feedback):
+            generator_calls.append(feedback);citation=Citation(chunk_id=evidence[0]['id'],quote='Agent actions collect observations.')
+            return GroundedAnswer(claims=[
+                GroundedClaim(statement='Proven reliable for millions of production users.',citations=[citation]),
+                GroundedClaim(statement='Agent actions collect observations.',citations=[citation])],insufficient_evidence=False),None
+        def judge(result,mode,model):
+            return SemanticAssessment(claim_supported=[False,True],limitations_scoped=True,limitations_consistent=True,
+                                      reasons=['Production scale is absent from the quote.']),None
+        run=self.client.post(f"/api/conversations/{conv['id']}/messages",json={'content':'What do actions do?','client_message_id':str(uuid4()),'skill_id':'evidence-qa','file_ids':[file['id']]}).json()
+        with patch('product.worker.run_rag',side_effect=lambda s,r,m,root:run_rag(s,r,m,root,generator=generator,semantic_validator=judge)):
+            run_once(self.settings)
+        detail=self.client.get(f"/api/runs/{run['run_id']}").json();result=detail['result_json']
+        self.assertEqual(detail['status'],'completed',detail.get('error_code'))
+        self.assertEqual(len(generator_calls),2)
+        self.assertEqual([claim['statement'] for claim in result['claims']],['Agent actions collect observations.'])
+        self.assertEqual(result['semantic_fallback']['removed_claim_indexes'],[0])
+        self.assertEqual(len(result['references']),1)
 
     def test_invalid_citations_twice_fail_without_publishing_answer(self):
         project,conv=self.conversation()
@@ -169,6 +253,22 @@ class RagTest(unittest.TestCase):
         self.assertEqual(detail['error_code'],'citation_quote_mismatch')
         self.assertEqual(len(calls),2)
         self.assertEqual(len(self.client.get(f"/api/conversations/{conv['id']}/messages").json()),1)
+
+    def test_second_citation_failure_removes_only_invalid_claim(self):
+        project,conv=self.conversation();file=self.indexed(project);calls=[]
+        def generator(question,evidence,skill,mode,model,feedback):
+            calls.append(feedback)
+            return GroundedAnswer(claims=[
+                GroundedClaim(statement='Invented claim.',citations=[Citation(chunk_id=evidence[0]['id'],quote='Invented quotation')]),
+                GroundedClaim(statement='Agent actions collect observations.',citations=[Citation(chunk_id=evidence[0]['id'],quote='Agent actions collect observations.')])],insufficient_evidence=False),None
+        run=self.client.post(f"/api/conversations/{conv['id']}/messages",json={'content':'question','client_message_id':str(uuid4()),'skill_id':'evidence-qa'}).json()
+        with patch('product.worker.run_rag',side_effect=lambda s,r,m,root:run_rag(s,r,m,root,generator=generator)):
+            run_once(self.settings)
+        detail=self.client.get(f"/api/runs/{run['run_id']}").json();result=detail['result_json']
+        self.assertEqual(detail['status'],'completed',detail.get('error_code'))
+        self.assertEqual(len(calls),2)
+        self.assertEqual([c['statement'] for c in result['claims']],['Agent actions collect observations.'])
+        self.assertEqual(result['citation_fallback']['removed_claim_indexes'],[0])
 
     def test_source_replaced_during_model_call_cannot_publish_stale_answer(self):
         project,conv=self.conversation()

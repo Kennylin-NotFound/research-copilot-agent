@@ -20,6 +20,7 @@ from product.llm import PROMPT_VERSION, model_name
 from product.file_api import file_router
 from product.skills_registry import AVAILABLE, load_skill
 from product import rag
+from product.project_context import context_router, snapshot as project_snapshot
 
 
 def create_app(settings: Settings | None = None):
@@ -83,7 +84,7 @@ def create_app(settings: Settings | None = None):
     def health():
         with connect(settings) as db:
             db.execute("SELECT 1")
-        return {"status": "ok", "stage": "M3", "mode": settings.mode}
+        return {"status": "ok", "stage": "M4-dev", "mode": settings.mode}
 
     @app.get("/api/setup")
     def setup_status():
@@ -206,6 +207,7 @@ def create_app(settings: Settings | None = None):
             options={'file_ids':[str(i) for i in body.file_ids] if body.file_ids is not None else None}
             snapshot=load_skill(body.skill_id) if body.skill_id else None
             db.execute('UPDATE runs SET skill_id=%s,skill_snapshot=%s,request_options=%s,prompt_version=%s WHERE id=%s',(body.skill_id,Jsonb(snapshot) if snapshot else None,Jsonb(options),rag.PROMPT_VERSION if snapshot else PROMPT_VERSION,run_id))
+            db.execute('UPDATE runs SET project_snapshot=%s WHERE id=%s',(Jsonb(project_snapshot(db,project)),run_id))
             db.execute("UPDATE messages SET run_id=%s WHERE id=%s", (run_id, message_id))
             db.execute("INSERT INTO jobs(id,run_id,status) VALUES(%s,%s,'queued')", (uuid4(), run_id))
             db.execute("UPDATE conversations SET updated_at=now() WHERE id=%s", (conversation_id,))
@@ -241,6 +243,7 @@ def create_app(settings: Settings | None = None):
             return row
 
     app.include_router(file_router(settings, current_user))
+    app.include_router(context_router(settings, current_user))
     static_dir = Path(__file__).parent / "web"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

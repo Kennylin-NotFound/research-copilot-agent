@@ -197,7 +197,14 @@ def file_router(settings, current_user):
             raise HTTPException(422, 'invalid_page')
         with connect(settings) as db:
             row = file_owned(db, file_id, user['id'])
-            versions = db.execute('SELECT id,version,content_sha256,size_bytes,status,parser_version,error_code,created_at FROM file_versions WHERE file_id=%s AND owner_id=%s ORDER BY version DESC', (file_id, user['id'])).fetchall()
+            versions = db.execute('SELECT id,version,content_sha256,size_bytes,status,parser_version,error_code,created_at,provenance,source_run_id FROM file_versions WHERE file_id=%s AND owner_id=%s ORDER BY version DESC', (file_id, user['id'])).fetchall()
+            revision=db.execute('SELECT revision FROM projects WHERE id=%s',(row['project_id'],)).fetchone()['revision']
+            for version in versions:
+                version['stale']=bool(version['provenance'] and version['provenance']['project_revision']!=revision)
+                if version['provenance'] and version['provenance'].get('source_versions'):
+                    expected=version['provenance']['source_versions']
+                    active=db.execute("SELECT v.id FROM file_versions v JOIN files f ON f.current_version_id=v.id WHERE v.id=ANY(%s::uuid[]) AND f.project_id=%s AND f.owner_id=%s AND f.deleted_at IS NULL AND v.status='ready'",(expected,row['project_id'],user['id'])).fetchall()
+                    version['stale']=version['stale'] or {str(v['id']) for v in active}!=set(expected)
             selected = version_id or row['current_version_id']
             if not any(v['id'] == selected for v in versions):
                 raise HTTPException(404, 'file_version_not_found')

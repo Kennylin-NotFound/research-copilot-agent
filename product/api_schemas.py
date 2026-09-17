@@ -22,5 +22,5 @@ class ConversationUpdate(Contract):
 class SendMessage(Contract):
     content: str = Field(min_length=1, max_length=12000)
     client_message_id: UUID
-    skill_id: Literal['evidence-qa'] | None = None
+    skill_id: Literal['evidence-qa','paper-review','evidence-survey'] | None = None
     file_ids: list[UUID] | None = Field(default=None,max_length=10)

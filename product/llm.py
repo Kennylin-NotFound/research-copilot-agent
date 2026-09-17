@@ -46,7 +46,7 @@ def classify_error(error):
     if "Timeout" in type(error).__name__:
         return "timeout"
     if isinstance(error, ValueError):
-        if str(error) in {'citation_not_in_context','citation_quote_mismatch','source_changed_before_publication','truncated_grounded_answer'}:
+        if str(error) in {'citation_not_in_context','citation_quote_mismatch','citation_truncated_quote','citation_semantic_mismatch','invalid_grounded_schema','invalid_semantic_assessment','incomplete_semantic_assessment','source_changed_before_publication','project_changed_before_publication','project_changed_before_state_patch','truncated_grounded_answer','tool_not_allowed','invalid_decision_tool_call','invalid_intent_tool_call'}:
             return str(error)
         return "schema_error"
     return "unavailable"
