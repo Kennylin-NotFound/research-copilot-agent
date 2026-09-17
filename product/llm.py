@@ -14,6 +14,7 @@ SYSTEM_PROMPT = """你是 Research Copilot，协助用户梳理科研问题和�
 class ModelAnswer:
     content: str
     usage: dict | None
+    result: dict | None = None
 
 
 def model_name(mode):
@@ -45,5 +46,7 @@ def classify_error(error):
     if "Timeout" in type(error).__name__:
         return "timeout"
     if isinstance(error, ValueError):
+        if str(error) in {'citation_not_in_context','citation_quote_mismatch','source_changed_before_publication','truncated_grounded_answer'}:
+            return str(error)
         return "schema_error"
     return "unavailable"

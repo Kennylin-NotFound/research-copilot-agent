@@ -1,0 +1,1 @@
+{"schema_version":1,"skill_id":"evidence-qa","version":"2026-09-16.1","tools":["retrieve_evidence","read_chunks"],"output_type":"answer"}

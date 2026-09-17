@@ -18,6 +18,8 @@ from product.api_schemas import Credentials, Title, ConversationUpdate, SendMess
 from product.contracts import ProjectState
 from product.llm import PROMPT_VERSION, model_name
 from product.file_api import file_router
+from product.skills_registry import AVAILABLE, load_skill
+from product import rag
 
 
 def create_app(settings: Settings | None = None):
@@ -81,7 +83,7 @@ def create_app(settings: Settings | None = None):
     def health():
         with connect(settings) as db:
             db.execute("SELECT 1")
-        return {"status": "ok", "stage": "M2", "mode": settings.mode}
+        return {"status": "ok", "stage": "M3", "mode": settings.mode}
 
     @app.get("/api/setup")
     def setup_status():
@@ -177,7 +179,7 @@ def create_app(settings: Settings | None = None):
     def messages(conversation_id: UUID, user=Depends(current_user)):
         with connect(settings) as db:
             conversation_owned(db, conversation_id, user)
-            return db.execute("SELECT id,role,content,run_id,mode,created_at FROM messages WHERE conversation_id=%s AND owner_id=%s ORDER BY created_at,id", (conversation_id, user["id"])).fetchall()
+            return db.execute("SELECT m.id,m.role,m.content,m.run_id,m.mode,m.created_at,CASE WHEN m.role='assistant' THEN r.result_json ELSE NULL END result_json FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=%s AND m.owner_id=%s ORDER BY m.created_at,m.id", (conversation_id, user["id"])).fetchall()
 
     @app.post("/api/conversations/{conversation_id}/messages", status_code=202)
     def send_message(conversation_id: UUID, body: SendMessage, user=Depends(current_user)):
@@ -186,16 +188,24 @@ def create_app(settings: Settings | None = None):
             project = db.execute("SELECT * FROM projects WHERE id=%s AND owner_id=%s FOR UPDATE", (conversation["project_id"], user["id"])).fetchone()
             existing = db.execute("SELECT id,content,run_id FROM messages WHERE conversation_id=%s AND client_message_id=%s AND owner_id=%s", (conversation_id, body.client_message_id, user["id"])).fetchone()
             if existing:
-                if existing["content"] != body.content:
+                prior = db.execute('SELECT request_options,skill_id FROM runs WHERE id=%s',(existing['run_id'],)).fetchone()
+                if existing["content"] != body.content or prior['skill_id'] != body.skill_id or prior['request_options'].get('file_ids') != ([str(i) for i in body.file_ids] if body.file_ids is not None else None):
                     raise HTTPException(409, "idempotency_content_conflict")
                 return {"message_id": existing["id"], "run_id": existing["run_id"], "deduplicated": True}
             if conversation["archived"]:
                 raise HTTPException(409, "conversation_archived")
             if db.execute("SELECT id FROM runs WHERE project_id=%s AND status IN ('queued','running','waiting_user','cancelling')", (project["id"],)).fetchone():
                 raise HTTPException(409, "project_busy")
+            if body.file_ids:
+                found = db.execute('SELECT id FROM files WHERE project_id=%s AND owner_id=%s AND id=ANY(%s::uuid[]) AND deleted_at IS NULL',(project['id'],user['id'],[str(i) for i in body.file_ids])).fetchall()
+                if {r['id'] for r in found} != set(body.file_ids):
+                    raise HTTPException(404,'selected_file_not_found')
             message_id, run_id, trace_id = uuid4(), uuid4(), uuid4()
             db.execute("INSERT INTO messages(id,conversation_id,project_id,owner_id,role,content,client_message_id,mode) VALUES(%s,%s,%s,%s,'user',%s,%s,%s)", (message_id, conversation_id, project["id"], user["id"], body.content, body.client_message_id, settings.mode))
             db.execute("INSERT INTO runs(id,trace_id,conversation_id,project_id,owner_id,user_message_id,project_revision,status,mode,model,prompt_version) VALUES(%s,%s,%s,%s,%s,%s,%s,'queued',%s,%s,%s)", (run_id, trace_id, conversation_id, project["id"], user["id"], message_id, project["revision"], settings.mode, model_name(settings.mode), PROMPT_VERSION))
+            options={'file_ids':[str(i) for i in body.file_ids] if body.file_ids is not None else None}
+            snapshot=load_skill(body.skill_id) if body.skill_id else None
+            db.execute('UPDATE runs SET skill_id=%s,skill_snapshot=%s,request_options=%s,prompt_version=%s WHERE id=%s',(body.skill_id,Jsonb(snapshot) if snapshot else None,Jsonb(options),rag.PROMPT_VERSION if snapshot else PROMPT_VERSION,run_id))
             db.execute("UPDATE messages SET run_id=%s WHERE id=%s", (run_id, message_id))
             db.execute("INSERT INTO jobs(id,run_id,status) VALUES(%s,%s,'queued')", (uuid4(), run_id))
             db.execute("UPDATE conversations SET updated_at=now() WHERE id=%s", (conversation_id,))
@@ -214,6 +224,20 @@ def create_app(settings: Settings | None = None):
             if not row:
                 raise HTTPException(404, "run_not_found")
             row["spans"] = db.execute("SELECT * FROM trace_spans WHERE run_id=%s ORDER BY started_at, CASE WHEN parent_span_id IS NULL THEN 0 ELSE 1 END,id", (run_id,)).fetchall()
+            context=db.execute('SELECT context FROM context_snapshots WHERE run_id=%s',(run_id,)).fetchone()
+            row['context_snapshot']=context['context'] if context else None
+            return row
+
+    @app.get('/api/skills')
+    def skills(user=Depends(current_user)):
+        return [{k:v for k,v in load_skill(identity).items() if k!='body'} for identity in AVAILABLE]
+
+    @app.get('/api/chunks/{chunk_id}')
+    def chunk(chunk_id: UUID,user=Depends(current_user)):
+        with connect(settings) as db:
+            row=db.execute("SELECT c.*,f.id file_id,f.display_name,f.kind,v.version,(f.current_version_id=v.id AND f.deleted_at IS NULL AND v.status='ready') current FROM document_chunks c JOIN file_versions v ON v.id=c.version_id JOIN files f ON f.id=v.file_id WHERE c.id=%s AND f.owner_id=%s",(chunk_id,user['id'])).fetchone()
+            if not row:
+                raise HTTPException(404,'chunk_not_found')
             return row
 
     app.include_router(file_router(settings, current_user))

@@ -231,4 +231,16 @@ def file_router(settings, current_user):
             db.execute("UPDATE file_versions SET status='uploaded',error_code=NULL WHERE id=%s", (row['current_version_id'],))
         return {'status': 'queued'}
 
+    @router.post('/api/files/{file_id}/retry-index')
+    def retry_index(file_id: UUID, user=Depends(current_user)):
+        with connect(settings) as db:
+            row=file_owned(db,file_id,user['id'])
+            if row['deleted_at']:
+                raise HTTPException(409,'file_trashed')
+            job=db.execute("UPDATE file_jobs SET status='queued',error_code=NULL WHERE version_id=%s AND kind='index' AND status='failed' AND attempt<3 RETURNING id",(row['current_version_id'],)).fetchone()
+            if not job:
+                raise HTTPException(409,'index_not_retryable')
+            db.execute("UPDATE file_versions SET status='pending_index',error_code=NULL WHERE id=%s",(row['current_version_id'],))
+        return {'status':'queued'}
+
     return router

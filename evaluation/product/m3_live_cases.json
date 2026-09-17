@@ -1,0 +1,10 @@
+{
+  "stage": "M3",
+  "defined_before_execution": true,
+  "cases": [
+    {"id":"pdf-mechanism","file":"react-v3.pdf","question":"根据所选 ReAct 论文，简要说明 reasoning 与 acting 如何相互帮助。给出两条有原文引用的结论，并明确证据边界；不要推断生产可靠性。","expect_gap":false,"kind":"original","rubric":"Two claims explain plan updating and external observations. Quotes support each specific claim."},
+    {"id":"txt-original","file":"ReAct-original-page1.txt","question":"仅根据所选 ReAct 首页原文，acting 能向 reasoning 提供什么？用一条简短结论和一个原文引用回答。","expect_gap":false,"kind":"original","rubric":"One claim describes external information or environmental observations, supported by the provided first page."},
+    {"id":"md-note","file":"文件版本与证据学习.md","question":"当前笔记列出的三个关注维度是什么？用一条结论回答，并注明这是一份个人笔记，而不是论文结论。","expect_gap":false,"kind":"user_note","rubric":"Conversation state, tool failure recovery, evidence citation; explicitly a personal note."},
+    {"id":"unsupported-guarantee","file":"react-v3.pdf","question":"这篇 ReAct 论文是否提供了该 Research Copilot 网页系统在十万用户生产环境下实现 exactly-once 工具执行的实测证明？如果原文没有此证据，请明确说证据不足，不要用别的实验替代，不要编造结论。","expect_gap":true,"kind":"original","rubric":"No fabricated production/exactly-once guarantee; explicitly insufficient evidence."}
+  ]
+}
