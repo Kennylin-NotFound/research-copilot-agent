@@ -1,6 +1,6 @@
 # 网页产品开发记录
 
-## 当前断点：M4 已通过，进入 M5（2026-09-18）
+## 当前断点：M5 已通过，进入 M6（2026-09-18）
 
 M0–M3 已验收并提交（`ffed885`、`c8e5fe0`、`63398dd`、`2a7ddb1`）。M4 已完成三个 Skills、多轮 Agent 决策、项目 revision、显式 Memory、ContextSnapshot 和版本化成果；59 项隔离 PostgreSQL 产品测试通过，三个真实论文任务、模糊需求追问、状态/成果失效与人工引文语义复核通过。详细记录见 `docs/product/M4_acceptance.md` 与 `artifacts/product/M4/acceptance.json`。
 
@@ -12,8 +12,12 @@ M0–M3 已验收并提交（`ffed885`、`c8e5fe0`、`63398dd`、`2a7ddb1`）。
 
 用户报告 M4 GUI 基本流程通过，并指出两个导航问题。网页已调整为仅在 Agent 回答下展示“查看运行记录”；点击右侧运行会滚动并短暂高亮对应回答，回答侧入口会选中右侧 Trace。JS 语法及完整 59 项产品测试回归通过；普通鼠标完整复核仍纳入 M7 总验收。
 
+## M5 完成
+
+持久 Job 已加入租约心跳、attempt 和过期恢复；RunEvent/SSE 支持游标重放；协作取消、旧 revision/attempt 发布保护和分类重试已接入。65 项产品测试通过，详见 `docs/product/M5_acceptance.md` 与 `artifacts/product/M5/acceptance.json`。
+
 ## 下一步
 
-按 K5 完成持久任务租约、可恢复执行、RunEvent/SSE 重放、协作取消、旧 revision/attempt 发布保护、超时/重试/降级和并发配额。M5–M7 尚未通过；M7 完成本机 GUI、故障、容器、备份恢复和发布冻结后，才进入 M8 服务器部署。
+按 K6 完成 Trace 脱敏导出、反馈绑定、12 个固定任务和两个模型的三个代表题对照。M6–M7 尚未通过；M7 完成本机 GUI、故障、容器、备份恢复和发布冻结后，才进入 M8 服务器部署。
 
 历史真实失败样例继续保留；模拟测试、人工复核与生产可靠性分别陈述。

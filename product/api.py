@@ -2,11 +2,13 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+import json
+import time
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from psycopg.types.json import Jsonb
@@ -21,6 +23,7 @@ from product.file_api import file_router
 from product.skills_registry import AVAILABLE, load_skill
 from product import rag
 from product.project_context import context_router, snapshot as project_snapshot
+from product.execution import append_event
 
 
 def create_app(settings: Settings | None = None):
@@ -84,7 +87,7 @@ def create_app(settings: Settings | None = None):
     def health():
         with connect(settings) as db:
             db.execute("SELECT 1")
-        return {"status": "ok", "stage": "M4-dev", "mode": settings.mode}
+        return {"status": "ok", "stage": "M5-dev", "mode": settings.mode}
 
     @app.get("/api/setup")
     def setup_status():
@@ -210,6 +213,7 @@ def create_app(settings: Settings | None = None):
             db.execute('UPDATE runs SET project_snapshot=%s WHERE id=%s',(Jsonb(project_snapshot(db,project)),run_id))
             db.execute("UPDATE messages SET run_id=%s WHERE id=%s", (run_id, message_id))
             db.execute("INSERT INTO jobs(id,run_id,status) VALUES(%s,%s,'queued')", (uuid4(), run_id))
+            append_event(db, run_id, "queued", {"project_revision": project["revision"]})
             db.execute("UPDATE conversations SET updated_at=now() WHERE id=%s", (conversation_id,))
             return {"message_id": message_id, "run_id": run_id, "trace_id": trace_id, "deduplicated": False}
 
@@ -228,7 +232,57 @@ def create_app(settings: Settings | None = None):
             row["spans"] = db.execute("SELECT * FROM trace_spans WHERE run_id=%s ORDER BY started_at, CASE WHEN parent_span_id IS NULL THEN 0 ELSE 1 END,id", (run_id,)).fetchall()
             context=db.execute('SELECT context FROM context_snapshots WHERE run_id=%s',(run_id,)).fetchone()
             row['context_snapshot']=context['context'] if context else None
+            row['actions']=db.execute("SELECT action_id,attempt,action_type,status,result_summary,error_code,created_at,updated_at FROM action_records WHERE run_id=%s ORDER BY created_at,action_id,attempt",(run_id,)).fetchall()
             return row
+
+    @app.post("/api/runs/{run_id}/cancel")
+    def cancel_run(run_id: UUID, user=Depends(current_user)):
+        with connect(settings) as db:
+            run = db.execute("SELECT * FROM runs WHERE id=%s AND owner_id=%s FOR UPDATE", (run_id, user["id"])).fetchone()
+            if not run:
+                raise HTTPException(404, "run_not_found")
+            if run["status"] == "cancelled":
+                return {"id": run_id, "status": "cancelled", "deduplicated": True}
+            if run["status"] in {"completed", "failed"}:
+                raise HTTPException(409, "run_already_terminal")
+            target = "cancelling" if run["status"] == "running" else "cancelled"
+            db.execute("UPDATE runs SET status=%s,completed_at=CASE WHEN %s='cancelled' THEN now() ELSE completed_at END WHERE id=%s", (target, target, run_id))
+            if target == "cancelled":
+                db.execute("UPDATE jobs SET status='cancelled',lease_token=NULL,lease_until=NULL WHERE run_id=%s AND status='queued'", (run_id,))
+            append_event(db, run_id, "cancel_requested" if target == "cancelling" else "cancelled", {})
+            return {"id": run_id, "status": target, "deduplicated": False}
+
+    @app.get("/api/runs/{run_id}/events")
+    def run_events(run_id: UUID, request: Request, after: int = 0, user=Depends(current_user)):
+        with connect(settings) as db:
+            owned = db.execute("SELECT id FROM runs WHERE id=%s AND owner_id=%s", (run_id, user["id"])).fetchone()
+        if not owned:
+            raise HTTPException(404, "run_not_found")
+        header = request.headers.get("last-event-id")
+        cursor = max(after, int(header) if header and header.isdigit() else 0)
+        if "text/event-stream" not in request.headers.get("accept", ""):
+            with connect(settings) as db:
+                return db.execute("SELECT seq,event_type,payload,created_at FROM run_events WHERE run_id=%s AND seq>%s ORDER BY seq LIMIT 200", (run_id, cursor)).fetchall()
+
+        def stream():
+            last, idle = cursor, 0
+            while idle < 25:
+                with connect(settings) as db:
+                    events = db.execute("SELECT seq,event_type,payload,created_at FROM run_events WHERE run_id=%s AND seq>%s ORDER BY seq LIMIT 200", (run_id, last)).fetchall()
+                    status = db.execute("SELECT status FROM runs WHERE id=%s", (run_id,)).fetchone()["status"]
+                if events:
+                    idle = 0
+                    for event in events:
+                        last = event["seq"]
+                        payload = json.dumps({"type": event["event_type"], "payload": event["payload"], "created_at": event["created_at"].isoformat()}, ensure_ascii=False)
+                        yield f"id: {last}\nevent: {event['event_type']}\ndata: {payload}\n\n"
+                else:
+                    idle += 1
+                    yield ": keep-alive\n\n"
+                if status in {"completed", "failed", "cancelled"} and not events:
+                    return
+                time.sleep(1)
+        return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.get('/api/skills')
     def skills(user=Depends(current_user)):

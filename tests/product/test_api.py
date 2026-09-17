@@ -159,6 +159,10 @@ class ApiTest(unittest.TestCase):
         def fail(*args):
             raise RuntimeError("fake-private-key-never-log")
         run_once(self.settings, responder=fail)
+        self.assertEqual(self.client.get(f"/api/runs/{run['run_id']}").json()["status"], "queued")
+        with connect(self.settings) as db:
+            db.execute("UPDATE jobs SET retry_after=now() WHERE run_id=%s", (run["run_id"],))
+        run_once(self.settings, responder=fail)
         response = self.client.get(f"/api/runs/{run['run_id']}")
         self.assertEqual(response.json()["status"], "failed")
         self.assertNotIn("fake-private-key", response.text)

@@ -13,6 +13,7 @@ from agent.state_graph import ResearchOrchestrator
 from domain import AgentAction, ActionType, ResearchBrief, ResearchState, PaperCandidate, RunStatus, ToolResult, ToolStatus
 from domain.schemas import RunLimits
 from product.db import connect
+from product.execution import record_action
 from product.llm import ModelAnswer
 from product.rag import span, retrieve, run_rag
 
@@ -137,7 +138,7 @@ class ProductOrchestrator(ResearchOrchestrator):
         return super()._policy_guard(graph_state)
 
 
-def run_research(settings,run,messages,root_span,policy_factory=ProductPolicy):
+def run_research(settings,run,messages,root_span,policy_factory=ProductPolicy,attempt=1):
     selected=run['request_options'].get('file_ids')
     with connect(settings) as db:
         parameters=[run['project_id'],run['owner_id']]
@@ -176,6 +177,12 @@ def run_research(settings,run,messages,root_span,policy_factory=ProductPolicy):
         final=result['research_state']
         details.update(status=final.status.value,termination_reason=final.termination_reason,progress=final.progress.model_dump(mode='json'),decisions=[d.model_dump(mode='json') for d in final.decisions])
     graph_record=final.model_dump(mode='json')
+    with connect(settings) as db:
+        for decision in final.decisions:
+            action=decision.action.model_dump(mode='json')
+            result_status=str(decision.result_status.value if hasattr(decision.result_status,'value') else decision.result_status or '')
+            status='ok' if result_status in {'success','ok','completed'} else ('error' if result_status in {'failed','error'} else 'planned')
+            record_action(db,run['id'],action,attempt,status,result_summary=decision.reason_summary)
     if final.status==RunStatus.AWAITING_HUMAN:
         if run['skill_id']=='paper-review' and len(files)>1:
             question='你希望评议哪一篇论文：'+'、'.join(file['display_name'] for file in files)+'？'

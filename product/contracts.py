@@ -188,7 +188,7 @@ class RunStatus(StrEnum):
 
 RUN_TRANSITIONS = {
     RunStatus.QUEUED: {RunStatus.RUNNING, RunStatus.CANCELLED, RunStatus.FAILED},
-    RunStatus.RUNNING: {RunStatus.WAITING_USER, RunStatus.CANCELLING, RunStatus.COMPLETED, RunStatus.FAILED},
+    RunStatus.RUNNING: {RunStatus.QUEUED, RunStatus.WAITING_USER, RunStatus.CANCELLING, RunStatus.COMPLETED, RunStatus.FAILED},
     RunStatus.WAITING_USER: {RunStatus.QUEUED, RunStatus.CANCELLED, RunStatus.FAILED},
     RunStatus.CANCELLING: {RunStatus.CANCELLED, RunStatus.FAILED},
     RunStatus.CANCELLED: set(), RunStatus.COMPLETED: set(), RunStatus.FAILED: set(),
