@@ -1,6 +1,14 @@
 # M7 本机总验收与发布冻结
 
-**状态：验收完成，等待记录 release source commit 与最终镜像 digest 后签发 LOCAL_READY。**
+**状态：`LOCAL_READY`（2026-09-18）。M7 本机发布候选已冻结，可以在取得服务器配置后进入 M8。**
+
+## 发布身份
+
+- release source commit：`38ca1de`（依赖锁与 Linux 发布包）。
+- 应用镜像：`research-copilot-agent:m7-38ca1de`，Linux/amd64，digest `sha256:0a8c48750a26dc2c09bc85b256bf7683b0509e44a8afc882c581f6f16914fd2f`。
+- 数据库镜像：`pgvector/pgvector:0.8.6-pg16-bookworm`，digest `sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b`。
+- schema：8 个迁移，最新为 `0008_observability_feedback.sql`。
+- 冻结镜像复核：API 与 worker 均使用上述同一 image ID，UID/GID 10001、只读根文件系统、`no-new-privileges`；重建后 API 健康，3 个 Run、9 个 File、30 个 TraceSpan 保留。
 
 ## Linux 发布候选
 
@@ -27,5 +35,4 @@
 - G11 是合成第二 owner 对已实现入口的测试，不是全面安全审计。
 - HTTPS、域名、服务器重启、定时备份和外网 SSE 属于 M8。
 
-最终签发项记录在忽略提交的 `artifacts/product/M7/release_manifest.json` 与 `acceptance.json`；源代码提交和镜像 digest 生成后，本文件状态更新为 `LOCAL_READY`。
-
+最终签发项记录在忽略提交的 `artifacts/product/M7/release_manifest.json` 与 `acceptance.json`。本次 `LOCAL_READY` 只覆盖本机 Windows 浏览器与 Linux 容器发布候选；M8 的服务器、HTTPS、外网 SSE、定时备份及服务器资源峰值仍未验收。
