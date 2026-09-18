@@ -19,7 +19,7 @@ concurrency:
 jobs:
   rollback:
     if: ${{ inputs.confirm == 'ROLLBACK' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
