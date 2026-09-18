@@ -1,0 +1,70 @@
+name: ${PRODUCT_COMPOSE_PROJECT:-research-copilot-release}
+
+x-product-app: &product-app
+  image: research-copilot-agent:${PRODUCT_RELEASE_TAG:-local}
+  env_file:
+    - .env
+  environment:
+    PRODUCT_DATABASE_URL: postgresql://copilot:${PRODUCT_DB_PASSWORD:?Set PRODUCT_DB_PASSWORD in the Compose env file}@db:5432/copilot
+    PRODUCT_DATA_DIR: /var/lib/research-copilot
+    PRODUCT_MODE: ${PRODUCT_MODE:-live}
+    PRODUCT_COOKIE_SECURE: "false"
+    PRODUCT_ALLOW_SETUP: "true"
+    PRODUCT_ALLOWED_HOSTS: 127.0.0.1,localhost
+  depends_on:
+    db:
+      condition: service_healthy
+  volumes:
+    - product_storage:/var/lib/research-copilot
+  read_only: true
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.6-pg16-bookworm
+    environment:
+      POSTGRES_DB: copilot
+      POSTGRES_USER: copilot
+      POSTGRES_PASSWORD: ${PRODUCT_DB_PASSWORD:?Set PRODUCT_DB_PASSWORD in the Compose env file}
+    volumes:
+      - product_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copilot -d copilot"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    mem_limit: 768m
+    cpus: 1.0
+    restart: unless-stopped
+
+  api:
+    <<: *product-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${PRODUCT_RELEASE_PORT:-18081}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3))['status']=='ok'"]
+      interval: 5s
+      timeout: 4s
+      retries: 30
+    mem_limit: 768m
+    cpus: 0.75
+
+  worker:
+    <<: *product-app
+    command: ["python", "-m", "product.worker"]
+    healthcheck:
+      disable: true
+    mem_limit: 1536m
+    cpus: 1.25
+
+volumes:
+  product_pgdata:
+  product_storage:

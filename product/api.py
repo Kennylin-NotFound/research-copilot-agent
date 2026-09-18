@@ -89,7 +89,7 @@ def create_app(settings: Settings | None = None):
     def health():
         with connect(settings) as db:
             db.execute("SELECT 1")
-        return {"status": "ok", "stage": "M6-dev", "mode": settings.mode}
+        return {"status": "ok", "stage": "M7-rc", "mode": settings.mode}
 
     @app.get("/api/setup")
     def setup_status():
@@ -99,7 +99,7 @@ def create_app(settings: Settings | None = None):
 
     @app.post("/api/setup", status_code=201)
     def setup(credentials: Credentials, request: Request, response: Response):
-        if settings.cookie_secure or request.client.host not in {"127.0.0.1", "::1"}:
+        if settings.cookie_secure or not settings.allow_setup:
             raise HTTPException(403, "local_setup_only")
         with connect(settings) as db:
             db.execute("SELECT pg_advisory_xact_lock(8931702)")

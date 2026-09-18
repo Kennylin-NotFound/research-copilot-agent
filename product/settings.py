@@ -14,6 +14,7 @@ class Settings:
     mode: str
     cookie_secure: bool
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost")
+    allow_setup: bool = True
 
     @classmethod
     def load(cls):
@@ -32,4 +33,5 @@ class Settings:
         if mode not in {"live", "mock"}:
             raise ValueError("PRODUCT_MODE must be live or mock")
         hosts = tuple(h.strip() for h in values.get("PRODUCT_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if h.strip())
-        return cls(database_url, data_dir, mode, values.get("PRODUCT_COOKIE_SECURE", "true").lower() == "true", hosts)
+        return cls(database_url, data_dir, mode, values.get("PRODUCT_COOKIE_SECURE", "true").lower() == "true", hosts,
+                   values.get("PRODUCT_ALLOW_SETUP", "false").lower() == "true")

@@ -1,6 +1,6 @@
 # 网页产品开发记录
 
-## 当前断点：M6 已通过，进入 M7（2026-09-18）
+## 当前断点：M7 验收执行完成，正在冻结发布候选（2026-09-18）
 
 M0–M3 已验收并提交（`ffed885`、`c8e5fe0`、`63398dd`、`2a7ddb1`）。M4 已完成三个 Skills、多轮 Agent 决策、项目 revision、显式 Memory、ContextSnapshot 和版本化成果；59 项隔离 PostgreSQL 产品测试通过，三个真实论文任务、模糊需求追问、状态/成果失效与人工引文语义复核通过。详细记录见 `docs/product/M4_acceptance.md` 与 `artifacts/product/M4/acceptance.json`。
 
@@ -23,5 +23,7 @@ Run/Span/Action/Context/反馈现可按 owner 查询并脱敏导出，网页可�
 ## 下一步
 
 按 K7 完成本机 GUI、故障回归、Linux API/worker/db 容器、备份恢复、G01–G20 证据矩阵和发布冻结。只有取得 `LOCAL_READY` 才进入 M8 服务器部署。
+
+M7 Linux 容器三 Skill smoke、重启持久化、备份恢复与 G01–G20 矩阵已经通过；当前只剩记录 release source commit、最终镜像 digest 和验收清单。Codex 浏览器受本机 URL 策略阻止，GUI 证据使用用户在本线程报告的手工通过结果并明确标注为人工观察。
 
 历史真实失败样例继续保留；模拟测试、人工复核与生产可靠性分别陈述。
