@@ -16,6 +16,7 @@ Research Copilot 已达到“可创建私有 GitHub 仓库”的本机发布前�
 
 - 删除网页中的阶段编号和“本机开发版”文案。
 - 工作方式改为“研究对话 / 联网论文检索 / 资料证据问答 / 单篇论文评议 / 多篇证据综述”。
+- 五分钟演示脚本与后续 M8 验收口径已统一为“研究对话 + 四个任务 Skills”。
 - 右侧运行记录使用“Skill 名称 + 回答摘要”，完整 Run ID 和 Trace ID 仍在详情中。
 - “查看运行记录”只显示在 Agent 回答下；右侧记录与中间回答可双向定位。
 
@@ -60,6 +61,7 @@ Research Copilot 已达到“可创建私有 GitHub 仓库”的本机发布前�
 | Python compileall | 通过 |
 | `app.js` / `rag.js` 语法 | 通过 |
 | Git diff whitespace | 通过 |
+| 最终演示与后续验收文档一致性 | 通过 |
 | Compose release / production 配置 | 通过 |
 | 真实 Tavily | 通过，无回退 |
 | 容器真实论文搜索 | 完成，5 条来源，Trace/Action 完整 |
