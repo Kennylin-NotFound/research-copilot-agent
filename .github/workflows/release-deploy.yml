@@ -97,6 +97,8 @@ jobs:
           provenance: mode=max
           sbom: true
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        if: ${{ github.event.repository.visibility == 'public' }}
+        name: Record GitHub artifact attestation for public repositories
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build.outputs.digest }}

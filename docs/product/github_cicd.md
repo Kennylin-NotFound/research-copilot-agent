@@ -23,6 +23,8 @@ test → publish GHCR digest + SBOM/provenance → SSH deploy → public HTTPS s
 
 发布 Job 使用 GitHub 自动生成的 `GITHUB_TOKEN` 写入当前仓库关联的 GHCR 包。部署 Job 只获得 `packages: read`，通过 SSH 把该次短期 token 输送给 `docker login --password-stdin`，拉取完成后立即 logout。
 
+BuildKit 会把 SBOM 和 provenance 作为 OCI attestations 写入 GHCR。GitHub 平台级 Artifact Attestations 在公开仓库执行；个人免费账号的私有仓库不支持该 API，因此对应步骤会明确跳过，不影响 GHCR 内的 SBOM/provenance 或精确 digest 部署。
+
 服务器保留 `.env.production`；工作流不接触 LLM、Embedding、搜索或数据库密码。
 
 ### `rollback-production`
