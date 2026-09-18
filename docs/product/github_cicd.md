@@ -39,7 +39,7 @@ test → publish GHCR digest + SBOM/provenance → SSH deploy → public HTTPS s
    - `DEPLOY_USER`
    - `DEPLOY_SSH_PRIVATE_KEY`
    - `DEPLOY_KNOWN_HOSTS`
-4. 在 Variables 添加 `PRODUCTION_URL`，必须是 HTTPS 根地址。
+4. 在 Variables 添加 `PRODUCTION_URL`（必须是 HTTPS 根地址）和 `PRODUCTION_TLS_MODE`（`public` 或 `internal`）。
 5. 确保 Actions 可以写入 Packages。若组织策略限制 `GITHUB_TOKEN`，由仓库管理员允许 workflow 的 `packages: write`。
 6. 可用时为默认分支启用保护：要求 `product-tests / test` 通过，禁止 force push 和删除。
 7. 完成服务器准备、DNS 和 `.env.production` 后，再推送新版本 tag。
@@ -60,6 +60,8 @@ ssh-keygen -t ed25519 -C research-copilot-github-actions -f research-copilot-dep
 - 私钥完整内容写入 `DEPLOY_SSH_PRIVATE_KEY`。
 - 使用云控制台或提供商资料核对服务器 SSH host fingerprint 后，把对应 `known_hosts` 行写入 `DEPLOY_KNOWN_HOSTS`。
 - 删除服务器授权即可立即撤销该流水线的 SSH 权限。
+
+没有域名时使用 `PRODUCTION_TLS_MODE=internal`。部署工作流会从运行中的 Caddy 容器导出公开根证书，并通过 `curl --cacert` 验证公网 IP 的证书与健康状态；它不会用 `-k` 跳过验证。浏览器演示机需要单独信任该根证书，获得域名后切回 `public`。
 
 ## 版本与回滚规则
 

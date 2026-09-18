@@ -116,6 +116,7 @@ jobs:
       DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+      PRODUCTION_TLS_MODE: ${{ vars.PRODUCTION_TLS_MODE }}
       GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GHCR_USER: ${{ github.actor }}
       IMAGE_REF: ${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.digest }}
@@ -133,6 +134,7 @@ jobs:
           [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]]
           [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
           [[ "$PRODUCTION_URL" =~ ^https://[A-Za-z0-9.-]+/?$ ]]
+          [[ "$PRODUCTION_TLS_MODE" == "public" || "$PRODUCTION_TLS_MODE" == "internal" ]]
           [[ "$IMAGE_REF" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
       - name: Configure pinned SSH host and deployment key
         shell: bash
@@ -146,7 +148,7 @@ jobs:
         shell: bash
         run: |
           tar -czf /tmp/research-copilot-deploy.tgz \
-            compose.production.yaml deploy/Caddyfile \
+            compose.production.yaml deploy/Caddyfile deploy/Caddyfile.ip \
             scripts/server_backup.sh scripts/server_deploy.sh scripts/server_restore_drill.sh \
             scripts/server_rollback.sh scripts/server_smoke.sh
           ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$RELEASE_DIR'"
@@ -162,7 +164,16 @@ jobs:
             "DEPLOY_ROOT=/opt/research-copilot bash '$RELEASE_DIR/scripts/server_deploy.sh' '$IMAGE_REF' '${{ github.ref_name }}'"
       - name: Verify public HTTPS deployment
         shell: bash
-        run: bash scripts/server_smoke.sh "$PRODUCTION_URL" "${{ github.ref_name }}"
+        run: |
+          ca_args=()
+          if [[ "$PRODUCTION_TLS_MODE" == "internal" ]]; then
+            ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+              'proxy_id="$(docker ps --filter label=com.docker.compose.project=research-copilot --filter label=com.docker.compose.service=proxy --format "{{.ID}}" | head -n1)"; test -n "$proxy_id"; docker exec "$proxy_id" cat /data/caddy/pki/authorities/local/root.crt' \
+              > /tmp/research-copilot-caddy-root.crt
+            grep -q 'BEGIN CERTIFICATE' /tmp/research-copilot-caddy-root.crt
+            ca_args=(/tmp/research-copilot-caddy-root.crt)
+          fi
+          bash scripts/server_smoke.sh "$PRODUCTION_URL" "${{ github.ref_name }}" "${ca_args[@]}"
       - name: Remove short-lived registry credential
         if: always()
         shell: bash

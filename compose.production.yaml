@@ -74,7 +74,7 @@ services:
       - "${PRODUCT_PUBLIC_HTTPS_PORT:-443}:443"
       - "${PRODUCT_PUBLIC_HTTPS_PORT:-443}:443/udp"
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${PRODUCT_CADDYFILE_PATH:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

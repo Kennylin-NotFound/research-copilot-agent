@@ -14,7 +14,7 @@ Internet :80/:443
       worker ─────────────┘
 ```
 
-- Caddy 终止 TLS、自动续期证书并把 SSE 低延迟转发到 API。
+- Caddy 终止 TLS 并把 SSE 低延迟转发到 API；域名模式使用公开 ACME 证书，临时 IP 模式使用 Caddy 内部 CA。
 - API 仍只在宿主回环地址暴露诊断端口，外部访问只经过 Caddy。
 - `.env.production`、数据库卷、文件卷和 Caddy 证书卷只存在服务器。
 - Actions 构建 GHCR 镜像后使用不可变 digest 部署；服务器不从 Git 工作区现场构建。
@@ -46,7 +46,9 @@ sudo bash scripts/server_prepare.sh <deploy-user>
 
 该脚本创建 `/opt/research-copilot/{releases,backups}` 并把部署用户加入 Docker 组。重新登录后验证该用户无需 sudo 即可执行 `docker ps`。
 
-公网 DNS 的 A/AAAA 记录必须指向服务器，安全组和主机防火墙必须允许 TCP 80/443；若启用 HTTP/3，可同时允许 UDP 443。Caddy 自动 HTTPS 的前提见 [Caddy 官方说明](https://caddyserver.com/docs/automatic-https)。
+安全组和主机防火墙必须允许 TCP 80/443；若启用 HTTP/3，可同时允许 UDP 443。有域名时，A/AAAA 记录必须指向服务器，Caddy 会自动申请公开证书，前提见 [Caddy 官方说明](https://caddyserver.com/docs/automatic-https)。
+
+没有域名时设置 `PRODUCT_PUBLIC_HOST=<公网 IP>` 与 `PRODUCT_CADDYFILE_PATH=./deploy/Caddyfile.ip`。该模式仍使用 HTTPS 和 Secure Cookie，但证书由 Caddy 内部 CA 签发：流水线导出其公开根证书并严格校验，浏览器首次访问需显式信任该根证书。获得域名后把路径切回 `./deploy/Caddyfile`，即可使用公开信任证书。
 
 ## 4. 服务器秘密配置
 
@@ -59,8 +61,9 @@ editor /opt/research-copilot/.env.production
 
 必须设置：
 
-- `PRODUCT_PUBLIC_HOST`：已经解析到服务器的域名，不带协议或路径。
-- `PRODUCT_ALLOWED_HOSTS`：通常与公网域名一致。
+- `PRODUCT_PUBLIC_HOST`：已经解析到服务器的域名，或临时部署使用的公网 IP；不带协议或路径。
+- `PRODUCT_ALLOWED_HOSTS`：通常与公网入口一致。
+- `PRODUCT_CADDYFILE_PATH`：域名模式为 `./deploy/Caddyfile`，IP 模式为 `./deploy/Caddyfile.ip`。
 - `ACME_EMAIL`：证书通知邮箱。
 - `PRODUCT_DB_PASSWORD`：随机长密码。
 - DeepSeek、Embedding 和 Tavily 密钥。
@@ -77,9 +80,10 @@ editor /opt/research-copilot/.env.production
 - `DEPLOY_SSH_PRIVATE_KEY`
 - `DEPLOY_KNOWN_HOSTS`
 
-并创建 repository variable：
+并创建 repository variables：
 
 - `PRODUCTION_URL=https://<PRODUCT_PUBLIC_HOST>`
+- `PRODUCTION_TLS_MODE=public`（公开域名证书）或 `internal`（临时 IP 内部 CA）
 
 部署密钥应单独生成、无口令、仅安装到部署用户，不复用个人长期 SSH 私钥。`DEPLOY_KNOWN_HOSTS` 必须来自已通过云控制台或服务器提供商核对的主机指纹。
 
@@ -146,7 +150,7 @@ DEPLOY_ROOT=/opt/research-copilot bash /opt/research-copilot/current/scripts/ser
 
 ## 9. SERVER_READY 验收
 
-- HTTPS 证书、HTTP→HTTPS、Secure Cookie、Host allowlist 和登录限流。
+- HTTPS 证书链、HTTP→HTTPS、Secure Cookie、Host allowlist 和登录限流；IP 模式用固定的内部 CA 验证，不用 `curl -k`。
 - 外部浏览器完成登录、对话、文件、五种工作方式、RAG、成果与 Trace。
 - 反向代理后的 SSE 重连、取消、长任务与错误恢复。
 - API/worker/数据库/Caddy 重启后账号、Session、文件和 Run 持久。

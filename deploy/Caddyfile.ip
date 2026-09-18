@@ -1,0 +1,32 @@
+{
+	email {$ACME_EMAIL}
+	admin off
+	default_sni {$PRODUCT_PUBLIC_HOST}
+}
+
+https://{$PRODUCT_PUBLIC_HOST} {
+	tls internal
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	reverse_proxy api:8080 {
+		health_uri /health
+		health_interval 30s
+		health_timeout 5s
+		health_headers {
+			Host {$PRODUCT_PUBLIC_HOST}
+		}
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
