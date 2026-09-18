@@ -35,7 +35,7 @@ if LLM_PROVIDER == "deepseek":
     LLM_API_KEY = _DEEPSEEK_API_KEY
     LLM_API_BASE = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
     _DEFAULT_LLM_MODEL = "deepseek-v4-pro"
-    _DEFAULT_EXTRACTION_MODEL = "deepseek-v4-flash"
+    _DEFAULT_EXTRACTION_MODEL = "deepseek-flash"
 elif LLM_PROVIDER == "openai":
     LLM_API_KEY = _OPENAI_API_KEY
     LLM_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")

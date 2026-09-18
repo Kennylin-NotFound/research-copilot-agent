@@ -10,9 +10,9 @@
     <div class="auth-intro"><span class="eyebrow">RESEARCH COPILOT</span><h1>从一个问题，<br>开始你的研究。</h1><p>把连续的思考留在同一个工作区，<br>让每一次对话都有迹可循。</p><div class="orbit">R<span>c</span></div></div>
     <form id="auth-form" class="auth-card"><span class="eyebrow">你的研究工作台</span><h2 id="auth-title">欢迎回来</h2><p id="auth-copy" class="muted">登录后继续你的研究对话。</p>
       <label>用户名<input id="username" name="username" autocomplete="username" minlength="3" maxlength="50" pattern="[a-zA-Z0-9_.-]+" required placeholder="例如 researcher"></label>
-      <label>密码<input id="password" name="password" type="password" autocomplete="current-password" minlength="10" maxlength="128" required placeholder="至少 10 位"></label>
+      <label>密码<input id="password" name="password" type="password" autocomplete="current-password" minlength="1" maxlength="128" required placeholder="输入密码"></label>
       <button class="primary" id="auth-submit">进入工作台 <span>↗</span></button><p class="error" id="auth-error" role="alert"></p>
-      <p class="small muted">本机开发版 · M1 对话基础</p>
+      <p class="small muted">证据驱动的研究 Agent</p>
     </form>
   </section>
   <main id="workspace" hidden>
@@ -27,7 +27,7 @@
       <div class="list-heading"><span id="conversation-heading">最近对话</span><button id="toggle-archive" class="text-button">已归档</button></div>
       <input id="conversation-search" class="search" placeholder="搜索当前项目的对话" aria-label="搜索对话">
       <nav id="conversations" aria-label="对话列表"></nav>
-      <div class="sidebar-footer"><div><span class="online-dot"></span> 本机工作区</div><div class="user-row"><span id="user-label"></span><button id="logout" class="text-button">退出</button></div></div>
+      <div class="sidebar-footer"><div><span class="online-dot"></span> 服务在线</div><div class="user-row"><span id="user-label"></span><button id="logout" class="text-button">退出</button></div></div>
     </aside>
     <section class="conversation-panel">
       <header class="conversation-header"><div><div class="eyebrow" id="project-label">WORKSPACE</div><h2 id="conversation-title">准备好开始新的研究了吗？</h2></div><div class="header-actions"><button id="rename-conversation" class="text-button">重命名</button><button id="archive-conversation" class="text-button">归档</button></div></header>
@@ -35,7 +35,7 @@
         <div class="empty" id="welcome"><div class="empty-icon">✳</div><h1>让问题变得清晰。</h1><p>新建项目和对话，描述你的研究目标。<br>你可以随时返回，继续之前的思考。</p><div class="starter">从这里开始 <span>↙</span></div></div>
         <div id="messages"></div>
       </div>
-      <div class="composer-wrap"><div class="agent-controls"><label>工作方式<select id="skill-select" aria-label="选择 Skill"><option value="">对话与澄清</option><option value="evidence-qa">证据问答</option><option value="paper-review">论文评议</option><option value="evidence-survey">证据综述</option></select></label><label>模型<select id="model-select" aria-label="选择模型策略"><option value="default">默认模型</option></select></label><details id="source-scope"><summary id="source-summary">全部可用资料</summary><div class="source-menu"><label><input id="source-all" type="checkbox" checked>全部可用资料</label><div id="source-options"></div><p class="small muted">仅检索当前项目已完成索引的资料；个人笔记会单独标注。</p></div></details></div><p id="status-line" class="status-line" role="status"></p><form id="message-form" class="composer"><textarea id="message-input" rows="3" maxlength="12000" placeholder="描述你的研究问题，或继续之前的讨论……" aria-label="消息" required></textarea><div class="composer-bottom"><span class="small muted">Shift + Enter 换行</span><button id="send" class="primary" type="submit">发送 ↑</button></div></form><div class="composer-note">原文证据可回查 · 引用需要结合原文判断</div></div>
+      <div class="composer-wrap"><div class="agent-controls"><label>工作方式<select id="skill-select" aria-label="选择 Skill"><option value="">研究对话</option><option value="paper-search">联网论文检索</option><option value="evidence-qa">资料证据问答</option><option value="paper-review">单篇论文评议</option><option value="evidence-survey">多篇证据综述</option></select></label><label>模型<select id="model-select" aria-label="选择模型策略"><option value="default">默认模型</option></select></label><details id="source-scope"><summary id="source-summary">全部可用资料</summary><div class="source-menu"><label><input id="source-all" type="checkbox" checked>全部可用资料</label><div id="source-options"></div><p class="small muted">仅检索当前项目已完成索引的资料；个人笔记会单独标注。</p></div></details><span id="network-scope" class="small muted" hidden>将联网检索公开学术来源</span></div><p id="status-line" class="status-line" role="status"></p><form id="message-form" class="composer"><textarea id="message-input" rows="3" maxlength="12000" placeholder="描述你的研究问题，或继续之前的讨论……" aria-label="消息" required></textarea><div class="composer-bottom"><span class="small muted">Shift + Enter 换行</span><button id="send" class="primary" type="submit">发送 ↑</button></div></form><div class="composer-note">原文证据可回查 · 引用需要结合原文判断</div></div>
     </section>
     <aside class="inspector"><div class="inspector-heading"><span>运行记录</span><span class="pill">TRACE</span></div><p class="muted small">选择一条回答，查看决策、工具、模型、引用校验与成果记录。</p><div id="run-list"></div><div id="run-detail" class="run-detail"><div class="inspector-empty">每次回答，<br>都有自己的记录。</div></div></aside>
   </main>

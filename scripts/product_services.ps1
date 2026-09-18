@@ -36,6 +36,6 @@ if ($Action -in @('Start','Restart')) {
         } catch { Start-Sleep -Seconds 1 }
     }
     if (-not $healthy) { throw 'API health check failed; inspect .local/api.stderr.log' }
-    Write-Output "API healthy: stage=$($health.stage) mode=$($health.mode)"
+    Write-Output "API healthy: version=$($health.version) environment=$($health.environment) mode=$($health.mode)"
 }
 Get-ProductProcesses | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress

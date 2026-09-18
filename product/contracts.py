@@ -28,7 +28,7 @@ class ErrorCode(StrEnum):
     CANCELLED = "cancelled"
 
 
-SkillId = Literal["evidence-qa", "paper-review", "evidence-survey"]
+SkillId = Literal["paper-search", "evidence-qa", "paper-review", "evidence-survey"]
 
 
 class RunBudget(Contract):
@@ -141,7 +141,7 @@ class SkillRuntime(Contract):
     version: str = Field(min_length=1, max_length=80)
     body_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     tools: list[Literal["retrieve_evidence", "read_chunks", "search_papers", "import_paper", "write_artifact"]] = Field(min_length=1, max_length=5)
-    output_type: Literal["answer", "review", "survey"]
+    output_type: Literal["search", "answer", "review", "survey"]
     budget: RunBudget = Field(default_factory=RunBudget)
 
 

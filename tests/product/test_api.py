@@ -59,6 +59,14 @@ class ApiTest(unittest.TestCase):
         self.client.cookies.set("copilot_session", cookie)
         self.assertEqual(self.client.get("/api/me").status_code, 401)
 
+    def test_setup_status_never_advertises_disabled_setup(self):
+        from dataclasses import replace
+        with connect(self.settings) as db:
+            db.execute("TRUNCATE users, login_attempts CASCADE")
+        disabled = replace(self.settings, allow_setup=False, cookie_secure=True, app_env="production")
+        with TestClient(create_app(disabled), headers=HEADERS, client=("127.0.0.1", 50002)) as client:
+            self.assertEqual(client.get("/api/setup").json(), {"required": False, "available": False})
+
     def test_conversation_rename_archive_restore_and_project_switch(self):
         project, conv = self.conversation()
         path = f"/api/conversations/{conv['id']}"
@@ -104,8 +112,46 @@ class ApiTest(unittest.TestCase):
         detail = self.client.get(f"/api/runs/{run['run_id']}").json()
         self.assertEqual(detail["status"], "completed")
         self.assertEqual(detail["model"], "mock-conversation")
+        self.assertEqual(detail["cost_estimate"]["status"], "not_billable")
         self.assertEqual(len(detail["spans"]), 2)
         self.assertEqual({span["status"] for span in detail["spans"]}, {"ok"})
+        listed = self.client.get(f"/api/conversations/{conv['id']}/runs").json()
+        self.assertEqual(listed[0]["id"], run["run_id"])
+        self.assertTrue(listed[0]["display_name"].startswith("研究对话 · [开发替身]"))
+        self.assertNotEqual(listed[0]["display_name"], run["run_id"])
+
+    def test_paper_search_requires_explicit_network_permission_and_is_traceable(self):
+        _, conv = self.conversation()
+        body = {
+            "content": "agent evaluation benchmark",
+            "client_message_id": str(uuid4()),
+            "skill_id": "paper-search",
+        }
+        denied = self.client.post(f"/api/conversations/{conv['id']}/messages", json=body)
+        self.assertEqual(denied.status_code, 422)
+        accepted = self.client.post(
+            f"/api/conversations/{conv['id']}/messages",
+            json=body | {"client_message_id": str(uuid4()), "allow_network": True},
+        )
+        self.assertEqual(accepted.status_code, 202, accepted.text)
+        self.assertTrue(run_once(self.settings))
+        detail = self.client.get(f"/api/runs/{accepted.json()['run_id']}").json()
+        self.assertEqual(detail["status"], "completed")
+        self.assertEqual(detail["result_json"]["provider"], "mock")
+        self.assertEqual(detail["result_json"]["references"], [])
+        self.assertTrue(detail["result_json"]["web_sources"][0]["url"].startswith("https://arxiv.org/"))
+        self.assertIn("search_papers", [span["name"] for span in detail["spans"]])
+        self.assertEqual(detail["actions"][0]["action_type"], "search_papers")
+        self.assertTrue(detail["result_json"]["insufficient_evidence"])
+
+    def test_network_permission_is_rejected_for_non_search_skills(self):
+        _, conv = self.conversation()
+        response = self.client.post(f"/api/conversations/{conv['id']}/messages", json={
+            "content": "hello",
+            "client_message_id": str(uuid4()),
+            "allow_network": True,
+        })
+        self.assertEqual(response.status_code, 422)
 
     def test_cross_owner_requests_rejected_on_all_domain_routes(self):
         project, conv = self.conversation()

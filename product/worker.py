@@ -14,6 +14,7 @@ from product.rag import run_rag, sources_current
 from product.project_context import context_prompt
 from product.request_intent import classify_message, apply_revision
 from product.research_agent import run_research
+from product.paper_search import run_paper_search
 from product.artifacts import publish_artifacts
 from product.execution import append_event, LeaseHeartbeat, RETRYABLE_ERRORS
 
@@ -66,7 +67,9 @@ def run_once(settings=None, responder=respond):
             conversation_messages=[{"role": row["role"], "content": row["content"]} for row in rows]
             if run.get('project_snapshot'):
                 conversation_messages.insert(0,{'role':'system','content':context_prompt(run['project_snapshot'])})
-            if run['skill_id'] in {'paper-review','evidence-survey'}:
+            if run['skill_id'] == 'paper-search':
+                answer=run_paper_search(settings,run,rows,root_span,attempt=attempt)
+            elif run['skill_id'] in {'paper-review','evidence-survey'}:
                 answer=run_research(settings,run,rows,root_span,attempt=attempt)
             else:
                 answer = run_rag(settings,run,rows,root_span) if run['skill_id'] else responder(conversation_messages, run["mode"], run["model"])

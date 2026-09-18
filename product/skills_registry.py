@@ -4,7 +4,18 @@ import json
 from pathlib import Path
 from product.contracts import SkillRuntime
 
-AVAILABLE = ('evidence-qa','paper-review','evidence-survey')
+AVAILABLE = ('paper-search','evidence-qa','paper-review','evidence-survey')
+DISPLAY_NAMES = {
+    None: '研究对话',
+    'paper-search': '联网论文检索',
+    'evidence-qa': '资料证据问答',
+    'paper-review': '单篇论文评议',
+    'evidence-survey': '多篇证据综述',
+}
+
+
+def display_name(identity):
+    return DISPLAY_NAMES.get(identity, identity or DISPLAY_NAMES[None])
 
 
 def load_skill(identity):

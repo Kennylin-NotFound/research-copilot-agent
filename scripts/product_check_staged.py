@@ -10,8 +10,9 @@ values = {**dotenv_values(ROOT / ".env"), **dotenv_values(ROOT / ".local/dev.env
 secrets = [value.encode() for key, value in values.items() if value and len(value) >= 12
            and any(token in key.upper() for token in ("KEY", "TOKEN", "PASSWORD", "SECRET", "DATABASE_URL"))]
 errors = []
+allowed_examples = {".env.example", ".env.production.example"}
 for name in filter(None, names):
-    if (name.startswith((".env", ".local/", "data/", "artifacts/", "reports/")) and name != ".env.example"):
+    if (name.startswith((".env", ".local/", "data/", "artifacts/", "reports/")) and name not in allowed_examples):
         errors.append({"path": name, "reason": "private runtime path"})
         continue
     body = subprocess.check_output(["git", "show", ":" + name], cwd=ROOT)

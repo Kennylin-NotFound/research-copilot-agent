@@ -1,0 +1,1 @@
+{"schema_version":1,"skill_id":"paper-search","version":"2026-09-18.1","tools":["search_papers"],"output_type":"search","budget":{"max_steps":1,"max_searches":1,"max_new_reads":0,"max_retries":1,"timeout_seconds":45,"max_output_tokens":1200,"max_total_tokens":2000}}

@@ -1,0 +1,45 @@
+name: product-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg16-bookworm
+        env:
+          POSTGRES_DB: copilot_dev
+          POSTGRES_USER: copilot
+          POSTGRES_PASSWORD: test-only-password
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U copilot -d copilot_dev"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PRODUCT_DATABASE_URL: postgresql://copilot:test-only-password@127.0.0.1:15432/copilot_dev
+      PRODUCT_DATA_DIR: .local/ci-storage
+      PRODUCT_MODE: mock
+      PRODUCT_COOKIE_SECURE: "false"
+      PRODUCT_ALLOW_SETUP: "true"
+      PRODUCT_ALLOWED_HOSTS: testserver
+      PRODUCT_APP_ENV: development
+      PRODUCT_APP_VERSION: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --requirement requirements.product.lock.txt
+      - run: python -m unittest discover -s tests/product -v
+      - run: python -m py_compile product/*.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --check product/web/app.js && node --check product/web/rag.js

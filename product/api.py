@@ -16,15 +16,15 @@ from psycopg.types.json import Jsonb
 from product.settings import Settings
 from product.db import connect, migrate
 from product.auth import password_hash, DUMMY_HASH, token_hash, issue_session
-from product.api_schemas import Credentials, Title, ConversationUpdate, SendMessage, FeedbackInput
+from product.api_schemas import SetupCredentials, LoginCredentials, Title, ConversationUpdate, SendMessage, FeedbackInput
 from product.contracts import ProjectState
 from product.llm import PROMPT_VERSION, model_name
 from product.file_api import file_router
-from product.skills_registry import AVAILABLE, load_skill
+from product.skills_registry import AVAILABLE, load_skill, display_name as skill_display_name
 from product import rag
 from product.project_context import context_router, snapshot as project_snapshot
 from product.execution import append_event
-from product.model_registry import available_models, resolve_model
+from product.model_registry import available_models, resolve_model, estimate_cost
 from product.observability import configured_secrets, redact
 
 
@@ -89,16 +89,17 @@ def create_app(settings: Settings | None = None):
     def health():
         with connect(settings) as db:
             db.execute("SELECT 1")
-        return {"status": "ok", "stage": "M7-rc", "mode": settings.mode}
+        return {"status": "ok", "version": settings.app_version, "environment": settings.app_env, "mode": settings.mode}
 
     @app.get("/api/setup")
     def setup_status():
         with connect(settings) as db:
             empty = not db.execute("SELECT id FROM users LIMIT 1").fetchone()
-        return {"required": empty, "local_only": True}
+        available = not settings.cookie_secure and settings.allow_setup
+        return {"required": empty and available, "available": available}
 
     @app.post("/api/setup", status_code=201)
-    def setup(credentials: Credentials, request: Request, response: Response):
+    def setup(credentials: SetupCredentials, request: Request, response: Response):
         if settings.cookie_secure or not settings.allow_setup:
             raise HTTPException(403, "local_setup_only")
         with connect(settings) as db:
@@ -113,7 +114,7 @@ def create_app(settings: Settings | None = None):
         return {"id": identity, "username": credentials.username.lower()}
 
     @app.post("/api/login")
-    def login(credentials: Credentials, response: Response):
+    def login(credentials: LoginCredentials, response: Response):
         username = credentials.username.lower()
         with connect(settings) as db:
             db.execute("INSERT INTO login_attempts(username) VALUES(%s) ON CONFLICT DO NOTHING", (username,))
@@ -197,7 +198,8 @@ def create_app(settings: Settings | None = None):
                 prior = db.execute('SELECT request_options,skill_id FROM runs WHERE id=%s',(existing['run_id'],)).fetchone()
                 if (existing["content"] != body.content or prior['skill_id'] != body.skill_id
                         or prior['request_options'].get('file_ids') != ([str(i) for i in body.file_ids] if body.file_ids is not None else None)
-                        or prior['request_options'].get('model_id','default') != body.model_id):
+                        or prior['request_options'].get('model_id','default') != body.model_id
+                        or prior['request_options'].get('allow_network',False) != body.allow_network):
                     raise HTTPException(409, "idempotency_content_conflict")
                 return {"message_id": existing["id"], "run_id": existing["run_id"], "deduplicated": True}
             if conversation["archived"]:
@@ -212,7 +214,8 @@ def create_app(settings: Settings | None = None):
             db.execute("INSERT INTO messages(id,conversation_id,project_id,owner_id,role,content,client_message_id,mode) VALUES(%s,%s,%s,%s,'user',%s,%s,%s)", (message_id, conversation_id, project["id"], user["id"], body.content, body.client_message_id, settings.mode))
             chosen_model=model_name(settings.mode) if settings.mode=='mock' else resolve_model(body.model_id)
             db.execute("INSERT INTO runs(id,trace_id,conversation_id,project_id,owner_id,user_message_id,project_revision,status,mode,model,prompt_version) VALUES(%s,%s,%s,%s,%s,%s,%s,'queued',%s,%s,%s)", (run_id, trace_id, conversation_id, project["id"], user["id"], message_id, project["revision"], settings.mode, chosen_model, PROMPT_VERSION))
-            options={'file_ids':[str(i) for i in body.file_ids] if body.file_ids is not None else None,'model_id':body.model_id}
+            options={'file_ids':[str(i) for i in body.file_ids] if body.file_ids is not None else None,
+                     'model_id':body.model_id,'allow_network':body.allow_network}
             snapshot=load_skill(body.skill_id) if body.skill_id else None
             db.execute('UPDATE runs SET skill_id=%s,skill_snapshot=%s,request_options=%s,prompt_version=%s WHERE id=%s',(body.skill_id,Jsonb(snapshot) if snapshot else None,Jsonb(options),rag.PROMPT_VERSION if snapshot else PROMPT_VERSION,run_id))
             db.execute('UPDATE runs SET project_snapshot=%s WHERE id=%s',(Jsonb(project_snapshot(db,project)),run_id))
@@ -226,7 +229,19 @@ def create_app(settings: Settings | None = None):
     def runs(conversation_id: UUID, user=Depends(current_user)):
         with connect(settings) as db:
             conversation_owned(db, conversation_id, user)
-            return db.execute("SELECT id,trace_id,status,mode,model,error_code,created_at FROM runs WHERE conversation_id=%s AND owner_id=%s ORDER BY created_at DESC,id LIMIT 30", (conversation_id, user["id"])).fetchall()
+            rows = db.execute(
+                "SELECT r.id,r.trace_id,r.status,r.mode,r.model,r.error_code,r.skill_id,r.created_at,"
+                "u.content user_content,a.content answer_content FROM runs r "
+                "JOIN messages u ON u.id=r.user_message_id "
+                "LEFT JOIN messages a ON a.id=r.final_message_id "
+                "WHERE r.conversation_id=%s AND r.owner_id=%s ORDER BY r.created_at DESC,r.id LIMIT 30",
+                (conversation_id, user["id"]),
+            ).fetchall()
+            for row in rows:
+                source = " ".join((row.pop("answer_content") or row.pop("user_content") or "").split())
+                summary = source[:22] + ("…" if len(source) > 22 else "")
+                row["display_name"] = skill_display_name(row["skill_id"]) + (f" · {summary}" if summary else "")
+            return rows
 
     @app.get("/api/runs/{run_id}")
     def run_detail(run_id: UUID, user=Depends(current_user)):
@@ -239,6 +254,7 @@ def create_app(settings: Settings | None = None):
             row['context_snapshot']=context['context'] if context else None
             row['actions']=db.execute("SELECT action_id,attempt,action_type,status,result_summary,error_code,created_at,updated_at FROM action_records WHERE run_id=%s ORDER BY created_at,action_id,attempt",(run_id,)).fetchall()
             row['feedback']=db.execute("SELECT id,message_id,artifact_version_id,rating,note,created_at,updated_at FROM feedback WHERE run_id=%s AND owner_id=%s ORDER BY created_at,id",(run_id,user['id'])).fetchall()
+            row['cost_estimate']=estimate_cost(row['model'],row['usage'],row.get('completed_at') or row['created_at'])
             return redact(row,configured_secrets(Path(__file__).resolve().parents[1]))
 
     @app.get("/api/runs/{run_id}/export")
@@ -247,6 +263,7 @@ def create_app(settings: Settings | None = None):
             run=db.execute("SELECT id,trace_id,conversation_id,project_id,project_revision,status,mode,model,prompt_version,skill_id,error_code,usage,created_at,completed_at,request_options,skill_snapshot,result_json,project_snapshot FROM runs WHERE id=%s AND owner_id=%s",(run_id,user['id'])).fetchone()
             if not run:
                 raise HTTPException(404,"run_not_found")
+            run['cost_estimate']=estimate_cost(run['model'],run['usage'],run.get('completed_at') or run['created_at'])
             payload={
                 'schema_version':1,'run':run,
                 'spans':db.execute("SELECT id,parent_span_id,kind,name,status,metadata,started_at,duration_ms,error_code FROM trace_spans WHERE run_id=%s ORDER BY started_at,id",(run_id,)).fetchall(),
