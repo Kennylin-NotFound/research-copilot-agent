@@ -29,8 +29,9 @@ jobs:
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
       PRODUCTION_TLS_MODE: ${{ vars.PRODUCTION_TLS_MODE }}
-      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GHCR_USER: ${{ github.actor }}
+      DEPLOY_REGISTRY: ${{ vars.TCR_REGISTRY }}
+      DEPLOY_REGISTRY_TOKEN: ${{ secrets.TCR_PASSWORD }}
+      DEPLOY_REGISTRY_USER: ${{ secrets.TCR_USERNAME }}
     steps:
       - name: Validate and configure SSH
         shell: bash
@@ -39,8 +40,11 @@ jobs:
           test -n "$DEPLOY_USER"
           test -n "$DEPLOY_SSH_PRIVATE_KEY"
           test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$DEPLOY_REGISTRY_TOKEN"
           [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]]
           [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$DEPLOY_REGISTRY_USER" =~ ^[A-Za-z0-9._@-]+$ ]]
+          [[ "$DEPLOY_REGISTRY" =~ ^[a-z0-9][a-z0-9.-]+$ ]]
           [[ "$PRODUCTION_URL" =~ ^https://[A-Za-z0-9.-]+/?$ ]]
           [[ "$PRODUCTION_TLS_MODE" == "public" || "$PRODUCTION_TLS_MODE" == "internal" ]]
           install -d -m 0700 ~/.ssh
@@ -51,8 +55,8 @@ jobs:
       - name: Restore previous deployment
         shell: bash
         run: |
-          printf '%s' "$GHCR_TOKEN" | ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "docker login ghcr.io --username '$GHCR_USER' --password-stdin"
+          printf '%s' "$DEPLOY_REGISTRY_TOKEN" | ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "docker login '$DEPLOY_REGISTRY' --username '$DEPLOY_REGISTRY_USER' --password-stdin"
           ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "DEPLOY_ROOT=/opt/research-copilot bash /opt/research-copilot/current/scripts/server_rollback.sh"
       - name: Verify public service after rollback
@@ -78,4 +82,4 @@ jobs:
       - name: Remove short-lived registry credential
         if: always()
         shell: bash
-        run: ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "docker logout ghcr.io >/dev/null 2>&1 || true" || true
+        run: ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "docker logout '$DEPLOY_REGISTRY' >/dev/null 2>&1 || true" || true

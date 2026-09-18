@@ -17,7 +17,7 @@ Internet :80/:443
 - Caddy 终止 TLS 并把 SSE 低延迟转发到 API；域名模式使用公开 ACME 证书，临时 IP 模式使用 Caddy 内部 CA。
 - API 仍只在宿主回环地址暴露诊断端口，外部访问只经过 Caddy。
 - `.env.production`、数据库卷、文件卷和 Caddy 证书卷只存在服务器。
-- Actions 构建 GHCR 镜像后使用不可变 digest 部署；服务器不从 Git 工作区现场构建。
+- Actions 把同一镜像发布到 GHCR 和地域内 TCR，服务器从 TCR 使用不可变 digest 部署；服务器不从 Git 工作区现场构建。
 
 ## 2. 服务器探测
 
@@ -99,12 +99,12 @@ git push origin v0.1.0-rc3
 `release-and-deploy` 依次执行：
 
 1. PostgreSQL 环境中的 80 项产品测试和语法检查。
-2. 构建 amd64/arm64 OCI 镜像，推送 GHCR，生成 SBOM 与 provenance。
+2. 构建 amd64/arm64 OCI 镜像，推送 GHCR 与 TCR，生成 SBOM 与 provenance。
 3. 通过固定 SSH host key 上传部署 bundle。
 4. 部署前拒绝未完成任务，暂停 API/worker，成对备份数据库与文件卷。
 5. 拉取精确镜像 digest，启动数据库、API、worker 和 Caddy。
 6. 检查容器内 production health，再从 GitHub runner 验证公网 HTTPS、安全头和版本。
-7. 清除服务器上的短期 GHCR 凭据。
+7. 清除服务器上的短期 registry 凭据。
 
 ## 7. 创建生产账号
 

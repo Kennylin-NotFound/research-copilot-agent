@@ -25,7 +25,7 @@ done
 
 image_ref="$(awk -F= '$1=="PRODUCT_IMAGE"{print substr($0,index($0,"=")+1)}' "$state_file")"
 app_version="$(awk -F= '$1=="PRODUCT_APP_VERSION"{print substr($0,index($0,"=")+1)}' "$state_file")"
-if [[ ! "$image_ref" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]; then
+if [[ ! "$image_ref" =~ ^[a-z0-9][a-z0-9.-]+/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]; then
   printf 'Current immutable image state is invalid.\n' >&2
   exit 3
 fi

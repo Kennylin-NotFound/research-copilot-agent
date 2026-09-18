@@ -14,7 +14,7 @@ fi
 previous_image="$(awk -F= '$1=="PRODUCT_IMAGE"{print substr($0,index($0,"=")+1)}' "$previous_file")"
 previous_version="$(awk -F= '$1=="PRODUCT_APP_VERSION"{print substr($0,index($0,"=")+1)}' "$previous_file")"
 previous_dir="$(awk -F= '$1=="RELEASE_DIR"{print substr($0,index($0,"=")+1)}' "$previous_file")"
-if [[ ! "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ || ! -f "$previous_dir/compose.production.yaml" ]]; then
+if [[ ! "$previous_image" =~ ^[a-z0-9][a-z0-9.-]+/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ || ! -f "$previous_dir/compose.production.yaml" ]]; then
   printf 'Rollback state is invalid.\n' >&2
   exit 3
 fi

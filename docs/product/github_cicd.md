@@ -18,10 +18,10 @@
 推送 `v*` tag 后执行：
 
 ```text
-test → publish GHCR digest + SBOM/provenance → SSH deploy → public HTTPS smoke
+test → publish GHCR/TCR digest + SBOM/provenance → SSH deploy → public HTTPS smoke
 ```
 
-发布 Job 使用 GitHub 自动生成的 `GITHUB_TOKEN` 写入当前仓库关联的 GHCR 包。部署 Job 只获得 `packages: read`，通过 SSH 把该次短期 token 输送给 `docker login --password-stdin`，拉取完成后立即 logout。
+发布 Job 使用 GitHub 自动生成的 `GITHUB_TOKEN` 写入当前仓库关联的 GHCR 包，同时把同一多架构 manifest 推送到腾讯云 TCR。生产服务器从地域内 TCR 按精确 digest 拉取，避免跨境 GHCR 层下载成为发布瓶颈；登录凭据通过 Secrets 和 `--password-stdin` 短时使用，拉取后立即 logout。
 
 BuildKit 会把 SBOM 和 provenance 作为 OCI attestations 写入 GHCR。GitHub 平台级 Artifact Attestations 在公开仓库执行；个人免费账号的私有仓库不支持该 API，因此对应步骤会明确跳过，不影响 GHCR 内的 SBOM/provenance 或精确 digest 部署。
 
@@ -35,13 +35,15 @@ BuildKit 会把 SBOM 和 provenance 作为 OCI attestations 写入 GHCR。GitHub
 
 1. 创建私有仓库并推送默认分支，先不要推送发布 tag。
 2. 等待 `product-tests` 首次成功。
-3. 在 `Settings → Secrets and variables → Actions` 添加五个 repository secrets：
+3. 在 `Settings → Secrets and variables → Actions` 添加以下 repository secrets：
    - `DEPLOY_HOST`
    - `DEPLOY_PORT`
    - `DEPLOY_USER`
    - `DEPLOY_SSH_PRIVATE_KEY`
    - `DEPLOY_KNOWN_HOSTS`
-4. 在 Variables 添加 `PRODUCTION_URL`（必须是 HTTPS 根地址）和 `PRODUCTION_TLS_MODE`（`public` 或 `internal`）。
+   - `TCR_USERNAME`
+   - `TCR_PASSWORD`
+4. 在 Variables 添加 `PRODUCTION_URL`（必须是 HTTPS 根地址）、`PRODUCTION_TLS_MODE`（`public` 或 `internal`）、`TCR_REGISTRY` 和 `TCR_IMAGE`。
 5. 确保 Actions 可以写入 Packages。若组织策略限制 `GITHUB_TOKEN`，由仓库管理员允许 workflow 的 `packages: write`。
 6. 可用时为默认分支启用保护：要求 `product-tests / test` 通过，禁止 force push 和删除。
 7. 完成服务器准备、DNS 和 `.env.production` 后，再推送新版本 tag。
@@ -68,7 +70,7 @@ ssh-keygen -t ed25519 -C research-copilot-github-actions -f research-copilot-dep
 ## 版本与回滚规则
 
 - 默认分支只代表已测试源码；生产只部署版本 tag 构建出的 digest。
-- Compose 收到的是 `ghcr.io/<owner>/<repo>@sha256:<digest>`，不依赖可移动 tag。
+- Compose 收到的是 `ccr.ccs.tencentyun.com/<namespace>/<repo>@sha256:<digest>`，不依赖可移动 tag；同一发布也保存在 GHCR。
 - 每次部署前保留数据库与文件卷成对备份，并保存当前/上一个镜像状态。
 - 应用健康失败自动回到上一镜像；公网 smoke 失败会使 Actions 标红，需要检查 Caddy/DNS/TLS 后决定重跑或回滚。
 - 涉及数据库不兼容变更时，不用代码回滚代替数据恢复。

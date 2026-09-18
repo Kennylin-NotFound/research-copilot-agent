@@ -64,13 +64,26 @@ jobs:
       id-token: write
     outputs:
       image: ${{ steps.image.outputs.name }}
+      registry: ${{ steps.image.outputs.registry }}
       digest: ${{ steps.build.outputs.digest }}
+    env:
+      TCR_REGISTRY: ${{ vars.TCR_REGISTRY }}
+      TCR_IMAGE: ${{ vars.TCR_IMAGE }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - id: image
-        name: Resolve lowercase GHCR image name
+        name: Validate and resolve registry image names
         shell: bash
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: |
+          ghcr_image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          [[ "$TCR_REGISTRY" =~ ^[a-z0-9][a-z0-9.-]+$ ]]
+          [[ "$TCR_IMAGE" =~ ^[a-z0-9][a-z0-9.-]+/[a-z0-9._/-]+$ ]]
+          [[ "$TCR_IMAGE" == "$TCR_REGISTRY/"* ]]
+          {
+            echo "ghcr=$ghcr_image"
+            echo "name=$TCR_IMAGE"
+            echo "registry=$TCR_REGISTRY"
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
@@ -78,6 +91,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ vars.TCR_REGISTRY }}
+          username: ${{ secrets.TCR_USERNAME }}
+          password: ${{ secrets.TCR_PASSWORD }}
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
@@ -86,6 +104,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
+            ${{ steps.image.outputs.ghcr }}:${{ github.ref_name }}
+            ${{ steps.image.outputs.ghcr }}:sha-${{ github.sha }}
             ${{ steps.image.outputs.name }}:${{ github.ref_name }}
             ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
           labels: |
@@ -100,7 +120,7 @@ jobs:
         if: ${{ github.event.repository.visibility == 'public' }}
         name: Record GitHub artifact attestation for public repositories
         with:
-          subject-name: ${{ steps.image.outputs.name }}
+          subject-name: ${{ steps.image.outputs.ghcr }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
@@ -119,8 +139,9 @@ jobs:
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
       PRODUCTION_TLS_MODE: ${{ vars.PRODUCTION_TLS_MODE }}
-      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GHCR_USER: ${{ github.actor }}
+      DEPLOY_REGISTRY: ${{ needs.publish.outputs.registry }}
+      DEPLOY_REGISTRY_TOKEN: ${{ secrets.TCR_PASSWORD }}
+      DEPLOY_REGISTRY_USER: ${{ secrets.TCR_USERNAME }}
       IMAGE_REF: ${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.digest }}
       RELEASE_DIR: /opt/research-copilot/releases/${{ github.sha }}
     steps:
@@ -133,11 +154,14 @@ jobs:
           test -n "$DEPLOY_SSH_PRIVATE_KEY"
           test -n "$DEPLOY_KNOWN_HOSTS"
           test -n "$PRODUCTION_URL"
+          test -n "$DEPLOY_REGISTRY_TOKEN"
           [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]]
           [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$DEPLOY_REGISTRY_USER" =~ ^[A-Za-z0-9._@-]+$ ]]
+          [[ "$DEPLOY_REGISTRY" =~ ^[a-z0-9][a-z0-9.-]+$ ]]
           [[ "$PRODUCTION_URL" =~ ^https://[A-Za-z0-9.-]+/?$ ]]
           [[ "$PRODUCTION_TLS_MODE" == "public" || "$PRODUCTION_TLS_MODE" == "internal" ]]
-          [[ "$IMAGE_REF" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
+          [[ "$IMAGE_REF" =~ ^[a-z0-9][a-z0-9.-]+/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
       - name: Configure pinned SSH host and deployment key
         shell: bash
         run: |
@@ -157,11 +181,11 @@ jobs:
           scp -P "$DEPLOY_PORT" /tmp/research-copilot-deploy.tgz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/research-copilot-deploy.tgz"
           ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "tar -xzf /tmp/research-copilot-deploy.tgz -C '$RELEASE_DIR' && rm -f /tmp/research-copilot-deploy.tgz && chmod 0750 '$RELEASE_DIR'/scripts/server_*.sh"
-      - name: Pull exact GHCR digest and deploy
+      - name: Pull exact regional registry digest and deploy
         shell: bash
         run: |
-          printf '%s' "$GHCR_TOKEN" | ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "docker login ghcr.io --username '$GHCR_USER' --password-stdin"
+          printf '%s' "$DEPLOY_REGISTRY_TOKEN" | ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "docker login '$DEPLOY_REGISTRY' --username '$DEPLOY_REGISTRY_USER' --password-stdin"
           ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "DEPLOY_ROOT=/opt/research-copilot bash '$RELEASE_DIR/scripts/server_deploy.sh' '$IMAGE_REF' '${{ github.ref_name }}'"
       - name: Verify public HTTPS deployment
@@ -179,4 +203,4 @@ jobs:
       - name: Remove short-lived registry credential
         if: always()
         shell: bash
-        run: ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "docker logout ghcr.io >/dev/null 2>&1 || true" || true
+        run: ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "docker logout '$DEPLOY_REGISTRY' >/dev/null 2>&1 || true" || true
