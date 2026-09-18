@@ -53,7 +53,7 @@ jobs:
           node-version: "22"
       - run: node --check product/web/app.js && node --check product/web/rag.js
 
-  publish:
+  publish-ghcr:
     needs: test
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -62,6 +62,53 @@ jobs:
       packages: write
       attestations: write
       id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - id: image
+        name: Resolve GitHub Container Registry image name
+        shell: bash
+        run: |
+          ghcr_image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "name=$ghcr_image" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ github.ref_name }}
+            ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+          cache-from: type=gha,scope=release-ghcr
+          cache-to: type=gha,mode=max,scope=release-ghcr
+          provenance: mode=max
+          sbom: true
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        if: ${{ github.event.repository.visibility == 'public' }}
+        name: Record GitHub artifact attestation for public repositories
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  publish-tcr:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
     outputs:
       image: ${{ steps.image.outputs.name }}
       registry: ${{ steps.image.outputs.registry }}
@@ -72,25 +119,17 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - id: image
-        name: Validate and resolve registry image names
+        name: Validate regional registry image name
         shell: bash
         run: |
-          ghcr_image="ghcr.io/${GITHUB_REPOSITORY,,}"
           [[ "$TCR_REGISTRY" =~ ^[a-z0-9][a-z0-9.-]+$ ]]
           [[ "$TCR_IMAGE" =~ ^[a-z0-9][a-z0-9.-]+/[a-z0-9._/-]+$ ]]
           [[ "$TCR_IMAGE" == "$TCR_REGISTRY/"* ]]
           {
-            echo "ghcr=$ghcr_image"
             echo "name=$TCR_IMAGE"
             echo "registry=$TCR_REGISTRY"
           } >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ${{ vars.TCR_REGISTRY }}
@@ -101,31 +140,22 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
-            ${{ steps.image.outputs.ghcr }}:${{ github.ref_name }}
-            ${{ steps.image.outputs.ghcr }}:sha-${{ github.sha }}
             ${{ steps.image.outputs.name }}:${{ github.ref_name }}
             ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: mode=max
-          sbom: true
-      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        if: ${{ github.event.repository.visibility == 'public' }}
-        name: Record GitHub artifact attestation for public repositories
-        with:
-          subject-name: ${{ steps.image.outputs.ghcr }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
+          cache-from: type=gha,scope=release-tcr
+          cache-to: type=gha,mode=max,scope=release-tcr
+          provenance: false
+          sbom: false
 
   deploy:
-    needs: publish
+    needs: [publish-ghcr, publish-tcr]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -139,10 +169,10 @@ jobs:
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
       PRODUCTION_TLS_MODE: ${{ vars.PRODUCTION_TLS_MODE }}
-      DEPLOY_REGISTRY: ${{ needs.publish.outputs.registry }}
+      DEPLOY_REGISTRY: ${{ needs.publish-tcr.outputs.registry }}
       DEPLOY_REGISTRY_TOKEN: ${{ secrets.TCR_PASSWORD }}
       DEPLOY_REGISTRY_USER: ${{ secrets.TCR_USERNAME }}
-      IMAGE_REF: ${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.digest }}
+      IMAGE_REF: ${{ needs.publish-tcr.outputs.image }}@${{ needs.publish-tcr.outputs.digest }}
       RELEASE_DIR: /opt/research-copilot/releases/${{ github.sha }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

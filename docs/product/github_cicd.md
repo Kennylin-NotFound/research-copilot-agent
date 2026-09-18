@@ -18,10 +18,10 @@
 推送 `v*` tag 后执行：
 
 ```text
-test → publish GHCR/TCR digest + SBOM/provenance → SSH deploy → public HTTPS smoke
+test → parallel publish (GHCR multi-arch + TCR amd64) → SSH deploy → public HTTPS smoke
 ```
 
-发布 Job 使用 GitHub 自动生成的 `GITHUB_TOKEN` 写入当前仓库关联的 GHCR 包，同时把同一多架构 manifest 推送到腾讯云 TCR。生产服务器从地域内 TCR 按精确 digest 拉取，避免跨境 GHCR 层下载成为发布瓶颈；登录凭据通过 Secrets 和 `--password-stdin` 短时使用，拉取后立即 logout。
+发布阶段从同一提交并行生成两类制品：GHCR 保存 amd64/arm64 多架构镜像及 SBOM/provenance；腾讯云 TCR 只保存当前生产服务器需要的 amd64 镜像，以减少 GitHub Runner 到国内 Registry 的跨区上传量。生产服务器从地域内 TCR 按精确 digest 拉取；登录凭据通过 Secrets 和 `--password-stdin` 短时使用，拉取后立即 logout。
 
 BuildKit 会把 SBOM 和 provenance 作为 OCI attestations 写入 GHCR。GitHub 平台级 Artifact Attestations 在公开仓库执行；个人免费账号的私有仓库不支持该 API，因此对应步骤会明确跳过，不影响 GHCR 内的 SBOM/provenance 或精确 digest 部署。
 
