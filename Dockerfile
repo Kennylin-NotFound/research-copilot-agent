@@ -23,4 +23,4 @@ COPY --chown=copilot:copilot config.py /app/config.py
 
 USER 10001:10001
 EXPOSE 8080
-CMD ["python", "-m", "uvicorn", "product.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--no-access-log"]
+CMD ["python", "-m", "uvicorn", "product.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips=*", "--no-access-log"]

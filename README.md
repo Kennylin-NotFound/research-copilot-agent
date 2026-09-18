@@ -36,6 +36,8 @@ LLM / Embedding / Tavily or Semantic Scholar
 - `compose.release.yaml`：本机 Linux 发布镜像验收
 - `compose.production.yaml`：服务器生产约束，强制 HTTPS Cookie、关闭网页初始化、显式 Host allowlist
 
+生产环境由 Caddy 提供自动 HTTPS。版本 tag 触发 GitHub Actions 测试、GHCR 多架构镜像发布、SSH 部署和公网健康检查；服务器只保存运行密钥。详见 [GitHub CI/CD](docs/product/github_cicd.md) 与 [生产部署说明](docs/product/production_deployment.md)。
+
 ## 本机开发启动
 
 要求：Python 3.11、Docker Desktop、Node.js（仅用于前端语法检查）。

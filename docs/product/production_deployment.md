@@ -1,67 +1,155 @@
 # 生产部署说明
 
-本说明用于 2 核 4 GB Ubuntu 单机部署。GitHub 发布前只验证配置合同与本机镜像；真正服务器部署需在取得域名、TLS 和 SSH 条件后执行。
+本说明用于单台 2 核 4 GB Linux 服务器。宿主发行版不要求 Ubuntu；运行边界是 Docker Engine、Compose v2、`curl`、`tar` 和 `sha256sum`。先执行只读探测，再按 Docker 官方文档安装与实际发行版匹配的 Engine。
 
-## 文件与版本
+## 1. 部署结构
 
-- 服务器只拉取已审查的 Git tag 或不可变镜像 digest。
-- 复制 `.env.production.example` 为未跟踪的 `.env.production`，填入随机数据库密码、域名、模型、Embedding 和搜索服务密钥。
-- `compose.production.yaml` 不允许网页初始化用户。部署后用受控命令创建首个账号。
-- 数据库存放业务元数据；`product_storage` 存放上传文件和生成成果。二者必须成对备份。
-
-## 配置检查
-
-```bash
-cp .env.production.example .env.production
-# 编辑 .env.production；不要提交或发送到聊天
-docker compose --env-file .env.production -f compose.production.yaml config --quiet
+```text
+Internet :80/:443
+        │
+   Caddy (自动 TLS)
+        │ internal Docker network
+   FastAPI API ─ PostgreSQL + pgvector
+        │                 │
+      worker ─────────────┘
 ```
 
-生产配置在应用启动时强制检查：
+- Caddy 终止 TLS、自动续期证书并把 SSE 低延迟转发到 API。
+- API 仍只在宿主回环地址暴露诊断端口，外部访问只经过 Caddy。
+- `.env.production`、数据库卷、文件卷和 Caddy 证书卷只存在服务器。
+- Actions 构建 GHCR 镜像后使用不可变 digest 部署；服务器不从 Git 工作区现场构建。
 
-- `PRODUCT_MODE=live`
-- `PRODUCT_COOKIE_SECURE=true`
-- `PRODUCT_ALLOW_SETUP=false`
-- `PRODUCT_ALLOWED_HOSTS` 为显式域名且不能使用 `*`
+## 2. 服务器探测
 
-## 启动
+将 `scripts/server_probe.sh` 复制到服务器并运行：
 
 ```bash
-docker compose --env-file .env.production -f compose.production.yaml up -d
-docker compose --env-file .env.production -f compose.production.yaml ps
-curl -fsS http://127.0.0.1:18081/health
+bash /tmp/server_probe.sh
 ```
 
-API 只绑定到服务器回环地址。Nginx 或 Caddy 在同机终止 TLS，并反向代理到 `127.0.0.1:18081`。SSE 路由应关闭响应缓冲并保留长连接。
+记录 OS ID/版本、CPU 架构、内存、根盘空间、Docker/Compose 版本、sudo 能力，以及 80、443、18081 端口占用。不得把 SSH 私钥或服务器密码写入报告。
 
-## 创建首个用户
-
-密码通过标准输入传入临时容器，不写入 Compose、Git 或 shell 参数：
+Docker 尚未安装时，根据探测到的发行版使用 [Docker Engine 官方安装入口](https://docs.docker.com/engine/install/)。完成后验证：
 
 ```bash
+docker version
+docker compose version
+```
+
+## 3. 一次性服务器准备
+
+服务器应有独立的普通部署用户。Docker 安装完成后执行：
+
+```bash
+sudo bash scripts/server_prepare.sh <deploy-user>
+```
+
+该脚本创建 `/opt/research-copilot/{releases,backups}` 并把部署用户加入 Docker 组。重新登录后验证该用户无需 sudo 即可执行 `docker ps`。
+
+公网 DNS 的 A/AAAA 记录必须指向服务器，安全组和主机防火墙必须允许 TCP 80/443；若启用 HTTP/3，可同时允许 UDP 443。Caddy 自动 HTTPS 的前提见 [Caddy 官方说明](https://caddyserver.com/docs/automatic-https)。
+
+## 4. 服务器秘密配置
+
+在服务器复制模板并限制权限：
+
+```bash
+install -m 0600 .env.production.example /opt/research-copilot/.env.production
+editor /opt/research-copilot/.env.production
+```
+
+必须设置：
+
+- `PRODUCT_PUBLIC_HOST`：已经解析到服务器的域名，不带协议或路径。
+- `PRODUCT_ALLOWED_HOSTS`：通常与公网域名一致。
+- `ACME_EMAIL`：证书通知邮箱。
+- `PRODUCT_DB_PASSWORD`：随机长密码。
+- DeepSeek、Embedding 和 Tavily 密钥。
+
+`PRODUCT_IMAGE` 与 `PRODUCT_APP_VERSION` 在 CD 时由不可变 digest 和 Git tag 覆盖；模板值只用于 Compose 配置解析。生产秘密不进入 GitHub Actions，GitHub 只保存 SSH 部署凭据。
+
+## 5. GitHub CD 配置
+
+完整配置见 [GitHub CI/CD](github_cicd.md)。仓库需要以下 Actions repository secrets：
+
+- `DEPLOY_HOST`
+- `DEPLOY_PORT`
+- `DEPLOY_USER`
+- `DEPLOY_SSH_PRIVATE_KEY`
+- `DEPLOY_KNOWN_HOSTS`
+
+并创建 repository variable：
+
+- `PRODUCTION_URL=https://<PRODUCT_PUBLIC_HOST>`
+
+部署密钥应单独生成、无口令、仅安装到部署用户，不复用个人长期 SSH 私钥。`DEPLOY_KNOWN_HOSTS` 必须来自已通过云控制台或服务器提供商核对的主机指纹。
+
+## 6. 发布与自动部署
+
+合并并验证默认分支后创建版本 tag：
+
+```bash
+git tag -a v0.1.0-rc3 -m "Research Copilot v0.1.0-rc3"
+git push origin v0.1.0-rc3
+```
+
+`release-and-deploy` 依次执行：
+
+1. PostgreSQL 环境中的 80 项产品测试和语法检查。
+2. 构建 amd64/arm64 OCI 镜像，推送 GHCR，生成 SBOM 与 provenance。
+3. 通过固定 SSH host key 上传部署 bundle。
+4. 部署前拒绝未完成任务，暂停 API/worker，成对备份数据库与文件卷。
+5. 拉取精确镜像 digest，启动数据库、API、worker 和 Caddy。
+6. 检查容器内 production health，再从 GitHub runner 验证公网 HTTPS、安全头和版本。
+7. 清除服务器上的短期 GHCR 凭据。
+
+## 7. 创建生产账号
+
+首次部署成功后，在服务器中输入强密码；密码不会进入参数或 shell 历史：
+
+```bash
+cd /opt/research-copilot/current
 read -s PRODUCT_USER_PASSWORD
-printf '%s\n' "$PRODUCT_USER_PASSWORD" | docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps api \
-  python -m product.manage_user <username> --password-stdin
+printf '%s\n' "$PRODUCT_USER_PASSWORD" | docker compose \
+  --env-file /opt/research-copilot/.env.production \
+  -f compose.production.yaml exec -T api \
+  python -m product.manage_user kenny --password-stdin
 unset PRODUCT_USER_PASSWORD
 ```
 
-生产环境不要使用 `--allow-weak-demo-password`。
+生产环境不得使用 `--allow-weak-demo-password`。
 
-## 备份与恢复
+## 8. 备份、恢复与回滚
 
-1. 确认没有处于 `running` 或 `cancelling` 的 Run。
-2. 使用 `pg_dump -Fc` 备份 PostgreSQL。
-3. 归档 `product_storage` 卷。
-4. 为两份文件记录 SHA-256 和应用镜像 digest。
-5. 恢复时新建 Compose project 和空卷，先恢复数据库，再恢复文件卷，最后核对文件版本数、孤立版本数和 blob 哈希。
+部署前备份保存在 `/opt/research-copilot/backups/<UTC timestamp>/`，包含：
 
-数据库迁移只向前执行，不提供自动 downgrade。代码回滚使用旧镜像；涉及数据结构回退时，恢复同一时间点的数据库与文件卷。
+- `copilot.dump`
+- `product_storage.tgz`
+- `SHA256SUMS`
+- 不含秘密的版本清单
 
-## 上线后验收
+手动备份：
 
-- HTTPS、Cookie、Host allowlist 和登录限流
-- API、worker、数据库健康与重启恢复
-- 上传、索引、RAG 引文回查、论文检索和 Trace 导出
-- 失败重试、取消、错误代码与费用估算
-- 数据库/文件卷备份恢复演练
-- 2 核 4 GB 下的并发、延迟和内存水位
+```bash
+DEPLOY_ROOT=/opt/research-copilot bash /opt/research-copilot/current/scripts/server_backup.sh
+```
+
+从某次备份恢复到隔离 Compose project 并自动核对数据库、孤立版本和全部存储文件哈希：
+
+```bash
+DEPLOY_ROOT=/opt/research-copilot bash /opt/research-copilot/current/scripts/server_restore_drill.sh \
+  /opt/research-copilot/backups/<UTC timestamp>
+```
+
+演练结束会删除隔离容器和临时卷，不修改当前生产卷；备份目录中保留恢复后的文件哈希清单作为证据。
+
+自动部署健康失败时会尝试恢复上一镜像。也可以在 GitHub Actions 手动运行 `rollback-production`，并输入 `ROLLBACK`。数据库迁移只向前执行；需要数据库结构回退时，必须把同一时刻的数据库 dump 与文件卷一起恢复。
+
+## 9. SERVER_READY 验收
+
+- HTTPS 证书、HTTP→HTTPS、Secure Cookie、Host allowlist 和登录限流。
+- 外部浏览器完成登录、对话、文件、五种工作方式、RAG、成果与 Trace。
+- 反向代理后的 SSE 重连、取消、长任务与错误恢复。
+- API/worker/数据库/Caddy 重启后账号、Session、文件和 Run 持久。
+- 备份恢复到隔离 Compose project 后，数据库数量、孤立 FileVersion 和 blob hash 一致。
+- 2 核 4 GB 下完成最大允许文件和一个活跃任务，记录 CPU、内存、磁盘和延迟。
+- 线上 `/health` 版本等于发布 tag，运行镜像等于 Actions 保存的 digest。

@@ -64,6 +64,33 @@ services:
     mem_limit: 1536m
     cpus: 0.9
 
+  proxy:
+    image: caddy:2.10.2-alpine
+    environment:
+      PRODUCT_PUBLIC_HOST: ${PRODUCT_PUBLIC_HOST:?Set PRODUCT_PUBLIC_HOST}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+    ports:
+      - "${PRODUCT_PUBLIC_HTTP_PORT:-80}:80"
+      - "${PRODUCT_PUBLIC_HTTPS_PORT:-443}:443"
+      - "${PRODUCT_PUBLIC_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 192m
+    cpus: 0.2
+
 volumes:
   product_pgdata:
   product_storage:
+  caddy_data:
+  caddy_config:

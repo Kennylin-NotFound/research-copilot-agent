@@ -1,0 +1,169 @@
+name: release-and-deploy
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg16-bookworm
+        env:
+          POSTGRES_DB: copilot_dev
+          POSTGRES_USER: copilot
+          POSTGRES_PASSWORD: test-only-password
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U copilot -d copilot_dev"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PRODUCT_DATABASE_URL: postgresql://copilot:test-only-password@127.0.0.1:15432/copilot_dev
+      PRODUCT_DATA_DIR: .local/ci-storage
+      PRODUCT_MODE: mock
+      PRODUCT_COOKIE_SECURE: "false"
+      PRODUCT_ALLOW_SETUP: "true"
+      PRODUCT_ALLOWED_HOSTS: testserver
+      PRODUCT_APP_ENV: development
+      PRODUCT_APP_VERSION: release-ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --requirement requirements.product.lock.txt
+      - run: python -m unittest discover -s tests/product -v
+      - run: python -m py_compile product/*.py
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - run: node --check product/web/app.js && node --check product/web/rag.js
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: image
+        name: Resolve lowercase GHCR image name
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ github.ref_name }}
+            ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GHCR_USER: ${{ github.actor }}
+      IMAGE_REF: ${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.digest }}
+      RELEASE_DIR: /opt/research-copilot/releases/${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate deployment inputs
+        shell: bash
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_PRIVATE_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$PRODUCTION_URL"
+          [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$PRODUCTION_URL" =~ ^https://[A-Za-z0-9.-]+/?$ ]]
+          [[ "$IMAGE_REF" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
+      - name: Configure pinned SSH host and deployment key
+        shell: bash
+        run: |
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Upload immutable deployment bundle
+        shell: bash
+        run: |
+          tar -czf /tmp/research-copilot-deploy.tgz \
+            compose.production.yaml deploy/Caddyfile \
+            scripts/server_backup.sh scripts/server_deploy.sh scripts/server_restore_drill.sh \
+            scripts/server_rollback.sh scripts/server_smoke.sh
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$RELEASE_DIR'"
+          scp -P "$DEPLOY_PORT" /tmp/research-copilot-deploy.tgz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/research-copilot-deploy.tgz"
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "tar -xzf /tmp/research-copilot-deploy.tgz -C '$RELEASE_DIR' && rm -f /tmp/research-copilot-deploy.tgz && chmod 0750 '$RELEASE_DIR'/scripts/server_*.sh"
+      - name: Pull exact GHCR digest and deploy
+        shell: bash
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "docker login ghcr.io --username '$GHCR_USER' --password-stdin"
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "DEPLOY_ROOT=/opt/research-copilot bash '$RELEASE_DIR/scripts/server_deploy.sh' '$IMAGE_REF' '${{ github.ref_name }}'"
+      - name: Verify public HTTPS deployment
+        shell: bash
+        run: bash scripts/server_smoke.sh "$PRODUCTION_URL" "${{ github.ref_name }}"
+      - name: Remove short-lived registry credential
+        if: always()
+        shell: bash
+        run: ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "docker logout ghcr.io >/dev/null 2>&1 || true" || true
