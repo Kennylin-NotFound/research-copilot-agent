@@ -25,7 +25,22 @@ export PRODUCT_APP_VERSION="$previous_version"
 compose=(docker compose -p "${PRODUCT_COMPOSE_PROJECT:-research-copilot}" --env-file "$env_file" -f "$previous_dir/compose.production.yaml")
 "${compose[@]}" pull
 "${compose[@]}" up -d --remove-orphans
-"${compose[@]}" exec -T api python -c "import json,os,urllib.request; request=urllib.request.Request('http://127.0.0.1:8080/health',headers={'Host':os.environ['PRODUCT_PUBLIC_HOST']}); data=json.load(urllib.request.urlopen(request,timeout=5)); assert data['status']=='ok'"
+healthy=0
+for attempt in $(seq 1 60); do
+  if "${compose[@]}" exec -T api python -c "import json,os,urllib.request; request=urllib.request.Request('http://127.0.0.1:8080/health',headers={'Host':os.environ['PRODUCT_PUBLIC_HOST']}); data=json.load(urllib.request.urlopen(request,timeout=5)); assert data['status']=='ok'" >/dev/null 2>&1; then
+    healthy=1
+    break
+  fi
+  if (( attempt % 10 == 0 )); then
+    printf 'Waiting for rollback health check (%s/60)...\n' "$attempt"
+  fi
+  sleep 2
+done
+if [[ "$healthy" != "1" ]]; then
+  "${compose[@]}" logs --tail 120 api worker proxy >&2 || true
+  printf 'Rollback health check failed; current state was not switched.\n' >&2
+  exit 5
+fi
 ln -sfnT "$previous_dir" "$deploy_root/current"
 cp "$previous_file" "$state_file"
 printf 'Rollback completed: %s\n' "$previous_version"
