@@ -80,12 +80,12 @@ diff -u "$backup_dir/storage-files.sha256" "$backup_dir/restored-storage-files.s
 
 "${compose[@]}" up -d api worker
 for _ in $(seq 1 45); do
-  if "${compose[@]}" exec -T api python -c "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3))['status']=='ok'" >/dev/null 2>&1; then
+  if "${compose[@]}" exec -T api python -c "import json,os,urllib.request; request=urllib.request.Request('http://127.0.0.1:8080/health',headers={'Host':os.environ['PRODUCT_PUBLIC_HOST']}); assert json.load(urllib.request.urlopen(request,timeout=3))['status']=='ok'" >/dev/null 2>&1; then
     break
   fi
   sleep 2
 done
-"${compose[@]}" exec -T api python -c "import json,urllib.request; print(json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3)))"
+"${compose[@]}" exec -T api python -c "import json,os,urllib.request; request=urllib.request.Request('http://127.0.0.1:8080/health',headers={'Host':os.environ['PRODUCT_PUBLIC_HOST']}); print(json.load(urllib.request.urlopen(request,timeout=3)))"
 docker exec "$db_id" psql -U copilot -d copilot -Atc \
   "SELECT json_build_object('migrations',(SELECT count(*) FROM schema_migrations),'users',(SELECT count(*) FROM users),'projects',(SELECT count(*) FROM projects),'files',(SELECT count(*) FROM files),'file_versions',(SELECT count(*) FROM file_versions),'runs',(SELECT count(*) FROM runs),'spans',(SELECT count(*) FROM trace_spans),'orphan_file_versions',(SELECT count(*) FROM file_versions v LEFT JOIN files f ON f.id=v.file_id WHERE f.id IS NULL));"
 printf 'Restore drill passed for %s; temporary project %s will be removed.\n' "$backup_dir" "$project"

@@ -5,7 +5,7 @@ import time
 from uuid import uuid4
 from psycopg.types.json import Jsonb
 
-from product.db import connect
+from product.db import connect, migrate
 from product.settings import Settings
 from product.llm import respond, classify_error
 from product.file_worker import parse_once
@@ -140,6 +140,9 @@ def main():
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     settings = Settings.load()
+    # API and worker can start concurrently in Compose. Apply the same
+    # advisory-lock-protected migrations before the worker reads job tables.
+    migrate(settings)
     while True:
         consumed = run_once(settings)
         consumed = parse_once(settings) or consumed

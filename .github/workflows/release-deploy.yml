@@ -200,6 +200,21 @@ jobs:
           chmod 0600 ~/.ssh/id_ed25519
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 0600 ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host production
+            HostName $DEPLOY_HOST
+            Port $DEPLOY_PORT
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            StrictHostKeyChecking yes
+            BatchMode yes
+            ConnectTimeout 15
+            ServerAliveInterval 20
+            ServerAliveCountMax 15
+          EOF
+          chmod 0600 ~/.ssh/config
       - name: Upload immutable deployment bundle
         shell: bash
         run: |
@@ -207,23 +222,27 @@ jobs:
             compose.production.yaml deploy/Caddyfile deploy/Caddyfile.ip \
             scripts/server_backup.sh scripts/server_deploy.sh scripts/server_restore_drill.sh \
             scripts/server_rollback.sh scripts/server_smoke.sh
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$RELEASE_DIR'"
-          scp -P "$DEPLOY_PORT" /tmp/research-copilot-deploy.tgz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/research-copilot-deploy.tgz"
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+          # shellcheck disable=SC2029 # release directory expands on the runner
+          ssh production "mkdir -p '$RELEASE_DIR'"
+          scp /tmp/research-copilot-deploy.tgz production:/tmp/research-copilot-deploy.tgz
+          # shellcheck disable=SC2029 # release directory expands on the runner
+          ssh production \
             "tar -xzf /tmp/research-copilot-deploy.tgz -C '$RELEASE_DIR' && rm -f /tmp/research-copilot-deploy.tgz && chmod 0750 '$RELEASE_DIR'/scripts/server_*.sh"
       - name: Pull exact regional registry digest and deploy
         shell: bash
         run: |
-          printf '%s' "$DEPLOY_REGISTRY_TOKEN" | ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+          # shellcheck disable=SC2029 # registry values expand on the runner
+          printf '%s' "$DEPLOY_REGISTRY_TOKEN" | ssh production \
             "docker login '$DEPLOY_REGISTRY' --username '$DEPLOY_REGISTRY_USER' --password-stdin"
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+          # shellcheck disable=SC2029 # immutable release values expand on the runner
+          ssh production \
             "DEPLOY_ROOT=/opt/research-copilot bash '$RELEASE_DIR/scripts/server_deploy.sh' '$IMAGE_REF' '${{ github.ref_name }}'"
       - name: Verify public HTTPS deployment
         shell: bash
         run: |
           ca_args=()
           if [[ "$PRODUCTION_TLS_MODE" == "internal" ]]; then
-            ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            ssh production \
               'proxy_id="$(docker ps --filter label=com.docker.compose.project=research-copilot --filter label=com.docker.compose.service=proxy --format "{{.ID}}" | head -n1)"; test -n "$proxy_id"; docker exec "$proxy_id" cat /data/caddy/pki/authorities/local/root.crt' \
               > /tmp/research-copilot-caddy-root.crt
             grep -q 'BEGIN CERTIFICATE' /tmp/research-copilot-caddy-root.crt
@@ -233,4 +252,6 @@ jobs:
       - name: Remove short-lived registry credential
         if: always()
         shell: bash
-        run: ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "docker logout '$DEPLOY_REGISTRY' >/dev/null 2>&1 || true" || true
+        run: |
+          # shellcheck disable=SC2029 # validated registry host expands on the runner
+          ssh production "docker logout '$DEPLOY_REGISTRY' >/dev/null 2>&1 || true" || true

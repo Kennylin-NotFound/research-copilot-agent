@@ -48,10 +48,13 @@ compose=(docker compose --env-file "$env_file" -f "$release_dir/compose.producti
 "${compose[@]}" up -d --remove-orphans
 
 healthy=0
-for _ in $(seq 1 60); do
-  if "${compose[@]}" exec -T api python -c "import json,urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3)); assert data['status']=='ok' and data['environment']=='production' and data['mode']=='live'" >/dev/null 2>&1; then
+for attempt in $(seq 1 60); do
+  if "${compose[@]}" exec -T api python -c "import json,os,urllib.request; request=urllib.request.Request('http://127.0.0.1:8080/health',headers={'Host':os.environ['PRODUCT_PUBLIC_HOST']}); data=json.load(urllib.request.urlopen(request,timeout=3)); assert data['status']=='ok' and data['environment']=='production' and data['mode']=='live'" >/dev/null 2>&1; then
     healthy=1
     break
+  fi
+  if (( attempt % 10 == 0 )); then
+    printf 'Waiting for production health check (%s/60)...\n' "$attempt"
   fi
   sleep 2
 done
