@@ -16,7 +16,7 @@ if [[ ! -f "$env_file" ]]; then
   exit 2
 fi
 
-compose=(docker compose --env-file "$env_file" -f "$current_dir/compose.production.yaml")
+compose=(docker compose -p "${PRODUCT_COMPOSE_PROJECT:-research-copilot}" --env-file "$env_file" -f "$current_dir/compose.production.yaml")
 db_id="$("${compose[@]}" ps -q db)"
 api_id="$("${compose[@]}" ps -q api)"
 if [[ -z "$db_id" || -z "$api_id" ]]; then

@@ -40,7 +40,7 @@ export PRODUCT_PUBLIC_HTTP_PORT=28080
 export PRODUCT_PUBLIC_HTTPS_PORT=28443
 export PRODUCT_PUBLIC_HOST=localhost
 export PRODUCT_ALLOWED_HOSTS=localhost
-compose=(docker compose --env-file "$env_file" -f "$current_dir/compose.production.yaml")
+compose=(docker compose -p "$PRODUCT_COMPOSE_PROJECT" --env-file "$env_file" -f "$current_dir/compose.production.yaml")
 
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true

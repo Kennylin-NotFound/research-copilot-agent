@@ -22,10 +22,10 @@ fi
 cp "$state_file" "$deploy_root/rollback-source.env"
 export PRODUCT_IMAGE="$previous_image"
 export PRODUCT_APP_VERSION="$previous_version"
-compose=(docker compose --env-file "$env_file" -f "$previous_dir/compose.production.yaml")
+compose=(docker compose -p "${PRODUCT_COMPOSE_PROJECT:-research-copilot}" --env-file "$env_file" -f "$previous_dir/compose.production.yaml")
 "${compose[@]}" pull
 "${compose[@]}" up -d --remove-orphans
 "${compose[@]}" exec -T api python -c "import json,os,urllib.request; request=urllib.request.Request('http://127.0.0.1:8080/health',headers={'Host':os.environ['PRODUCT_PUBLIC_HOST']}); data=json.load(urllib.request.urlopen(request,timeout=5)); assert data['status']=='ok'"
-ln -sfn "$previous_dir" "$deploy_root/current"
+ln -sfnT "$previous_dir" "$deploy_root/current"
 cp "$previous_file" "$state_file"
 printf 'Rollback completed: %s\n' "$previous_version"

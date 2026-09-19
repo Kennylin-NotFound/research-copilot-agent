@@ -10,7 +10,8 @@ fi
 image_ref="$1"
 app_version="$2"
 deploy_root="${DEPLOY_ROOT:-/opt/research-copilot}"
-release_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+release_dir="$(cd "$(dirname "$script_path")/.." && pwd -P)"
 env_file="$deploy_root/.env.production"
 state_file="$deploy_root/current.env"
 previous_file="$deploy_root/previous.env"
@@ -23,6 +24,13 @@ if [[ ! "$app_version" =~ ^v?[0-9A-Za-z._-]+$ ]]; then
   printf 'Invalid application version.\n' >&2
   exit 2
 fi
+case "$release_dir" in
+  "$deploy_root"/releases/*) ;;
+  *)
+    printf 'Deployment bundle must resolve inside %s/releases: %s\n' "$deploy_root" "$release_dir" >&2
+    exit 3
+    ;;
+esac
 if [[ ! -f "$env_file" ]]; then
   printf 'Missing server-only configuration: %s\n' "$env_file" >&2
   exit 3
@@ -42,7 +50,7 @@ fi
 
 export PRODUCT_IMAGE="$image_ref"
 export PRODUCT_APP_VERSION="$app_version"
-compose=(docker compose --env-file "$env_file" -f "$release_dir/compose.production.yaml")
+compose=(docker compose -p "${PRODUCT_COMPOSE_PROJECT:-research-copilot}" --env-file "$env_file" -f "$release_dir/compose.production.yaml")
 "${compose[@]}" config --quiet
 "${compose[@]}" pull
 "${compose[@]}" up -d --remove-orphans
@@ -68,15 +76,15 @@ if [[ "$healthy" != "1" ]]; then
     if [[ "$previous_image" =~ ^[a-z0-9][a-z0-9.-]+/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ && -f "$previous_dir/compose.production.yaml" ]]; then
       export PRODUCT_IMAGE="$previous_image"
       export PRODUCT_APP_VERSION="$previous_version"
-      docker compose --env-file "$env_file" -f "$previous_dir/compose.production.yaml" up -d --remove-orphans
-      ln -sfn "$previous_dir" "$deploy_root/current"
+      docker compose -p "${PRODUCT_COMPOSE_PROJECT:-research-copilot}" --env-file "$env_file" -f "$previous_dir/compose.production.yaml" up -d --remove-orphans
+      ln -sfnT "$previous_dir" "$deploy_root/current"
     fi
   fi
   printf 'Deployment health check failed.\n' >&2
   exit 5
 fi
 
-ln -sfn "$release_dir" "$deploy_root/current"
+ln -sfnT "$release_dir" "$deploy_root/current"
 {
   printf 'PRODUCT_IMAGE=%s\n' "$image_ref"
   printf 'PRODUCT_APP_VERSION=%s\n' "$app_version"
