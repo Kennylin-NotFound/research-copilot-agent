@@ -2,7 +2,7 @@
 
 Research Copilot 是一个面向个人研究工作的网页 Agent。它把连续对话、项目文件、RAG、显式 Skills、可恢复执行、Trace、反馈和费用估算放在同一个工作区中。
 
-当前版本面向单机开发、演示和后续服务器部署。搜索结果只用于发现候选论文；涉及论文结论时，系统要求用户上传原文并通过本地证据链回答。
+当前版本面向个人使用、小范围试用和单机服务器演示，已完成 GitHub CI/CD 与实际服务器部署验收。搜索结果只用于发现候选论文；涉及论文结论时，系统要求用户上传原文并通过本地证据链回答。
 
 ## 核心能力
 
@@ -36,7 +36,7 @@ LLM / Embedding / Tavily or Semantic Scholar
 - `compose.release.yaml`：本机 Linux 发布镜像验收
 - `compose.production.yaml`：服务器生产约束，强制 HTTPS Cookie、关闭网页初始化、显式 Host allowlist
 
-生产环境由 Caddy 提供自动 HTTPS。版本 tag 触发 GitHub Actions 测试、GHCR 多架构归档、TCR amd64 生产镜像发布、SSH 部署和公网健康检查；服务器只保存运行密钥。详见 [GitHub CI/CD](docs/product/github_cicd.md) 与 [生产部署说明](docs/product/production_deployment.md)。
+生产环境由 Caddy 提供 HTTPS。版本 tag 触发 GitHub Actions 测试、GHCR 多架构归档、TCR amd64 生产镜像发布、SSH 部署和公网健康检查；服务器只保存运行密钥。当前服务器验收见 [M8 报告](docs/product/M8_acceptance.md)，流水线与运维见 [GitHub CI/CD](docs/product/github_cicd.md) 和 [生产部署说明](docs/product/production_deployment.md)。
 
 ## 本机开发启动
 

@@ -1,6 +1,6 @@
 # 生产部署说明
 
-本说明用于单台 2 核 4 GB Linux 服务器。宿主发行版不要求 Ubuntu；运行边界是 Docker Engine、Compose v2、`curl`、`tar` 和 `sha256sum`。先执行只读探测，再按 Docker 官方文档安装与实际发行版匹配的 Engine。
+本说明用于单台约 4 GB 内存的 Linux 服务器。宿主发行版不要求 Ubuntu；当前实跑环境是 OpenCloudOS 9.4、4 vCPU、约 3.6 GiB。运行边界是 Docker Engine、Compose v2、`curl`、`tar` 和 `sha256sum`。先执行只读探测，再按 Docker 官方文档安装与实际发行版匹配的 Engine。
 
 ## 1. 部署结构
 
@@ -92,8 +92,8 @@ editor /opt/research-copilot/.env.production
 合并并验证默认分支后创建版本 tag：
 
 ```bash
-git tag -a v0.1.0-rc3 -m "Research Copilot v0.1.0-rc3"
-git push origin v0.1.0-rc3
+git tag -a v0.1.0-rc9 -m "Research Copilot v0.1.0-rc9"
+git push origin v0.1.0-rc9
 ```
 
 `release-and-deploy` 依次执行：
@@ -108,7 +108,7 @@ git push origin v0.1.0-rc3
 
 ## 7. 创建生产账号
 
-首次部署成功后，在服务器中输入强密码；密码不会进入参数或 shell 历史：
+首次部署成功后，在服务器中输入强密码；密码不会进入参数或 shell 历史。当前生产账号是 `kenny`，具体密码只保存在本机 Git 忽略文件：
 
 ```bash
 cd /opt/research-copilot/current
@@ -121,6 +121,8 @@ unset PRODUCT_USER_PASSWORD
 ```
 
 生产环境不得使用 `--allow-weak-demo-password`。
+
+临时 IP TLS 的公开根证书保存在验收机的 `artifacts/product/M8/research-copilot-caddy-root.crt`，SHA-256 为 `B683A769B422046BFEA171EC5F6832A14FE47F5267B4FB3A7F1ABFF1B527A1CA`。Windows 演示机可在核对该文件来源后导入“当前用户/受信任的根证书颁发机构”；获得域名后应改用公开 ACME 并删除这项本地信任。当前页面入口为 `https://101.43.120.39`。宿主 TCP 80 被既有 nginx 使用，因此产品没有接管 80；Caddy 的 HTTP 入口映射到 18080，但云安全组未将它作为公开入口，演示直接使用 HTTPS 443。
 
 ## 8. 备份、恢复与回滚
 
@@ -150,10 +152,12 @@ DEPLOY_ROOT=/opt/research-copilot bash /opt/research-copilot/current/scripts/ser
 
 ## 9. SERVER_READY 验收
 
+当前 `v0.1.0-rc9` 已在实际服务器完成下列服务器端门槛，并签发 `SERVER_READY`；逐项证据见 [M8 验收报告](M8_acceptance.md)。
+
 - HTTPS 证书链、HTTP→HTTPS、Secure Cookie、Host allowlist 和登录限流；IP 模式用固定的内部 CA 验证，不用 `curl -k`。
-- 外部浏览器完成登录、对话、文件、五种工作方式、RAG、成果与 Trace。
+- 公网 HTTPS 页面和全部静态资源经导出 CA 严格验证；普通浏览器信任内部 CA 后可完成登录、对话、文件、五种工作方式、RAG、成果与 Trace。本机 GUI 基本流程此前已由用户观察通过，服务器端自动验收不把它改写为外部浏览器视觉通过。
 - 反向代理后的 SSE 重连、取消、长任务与错误恢复。
 - API/worker/数据库/Caddy 重启后账号、Session、文件和 Run 持久。
 - 备份恢复到隔离 Compose project 后，数据库数量、孤立 FileVersion 和 blob hash 一致。
-- 2 核 4 GB 下完成最大允许文件和一个活跃任务，记录 CPU、内存、磁盘和延迟。
+- 实际 4 vCPU/约 3.6 GiB 环境完成 100 页文件、五种工作方式与 68 组资源采样，记录各容器 CPU 和内存水位。
 - 线上 `/health` 版本等于发布 tag，运行镜像等于 Actions 保存的 digest。

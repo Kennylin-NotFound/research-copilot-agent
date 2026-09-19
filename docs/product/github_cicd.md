@@ -1,5 +1,12 @@
 # GitHub CI/CD
 
+## 当前实跑状态
+
+- 私有仓库：[`Kennylin-NotFound/research-copilot-agent`](https://github.com/Kennylin-NotFound/research-copilot-agent)。
+- 当前生产标签 `v0.1.0-rc9`；release run [`35415767475`](https://github.com/Kennylin-NotFound/research-copilot-agent/actions/runs/35415767475) 已完成测试、GHCR/TCR 发布、SSH 部署和公网严格 HTTPS 检查。
+- 手工回滚 run [`35429382917`](https://github.com/Kennylin-NotFound/research-copilot-agent/actions/runs/35429382917) 已实跑 rc9 → rc8；账号、项目、会话、Run 和文件保留。随后恢复 rc9 并再次验收。
+- 个人免费账号的私有仓库当前无法启用 branch protection；该限制记录在验收报告中，未把它误写成已启用。
+
 ## 流水线
 
 ### `product-tests`
@@ -29,7 +36,7 @@ BuildKit 会把 SBOM 和 provenance 作为 OCI attestations 写入 GHCR。GitHub
 
 ### `rollback-production`
 
-手动触发并输入 `ROLLBACK` 后恢复 `previous.env` 指向的镜像和 release bundle，再验证公网生产 health。生产部署与回滚共用 concurrency group，不会同时修改服务器。
+手动触发并输入 `ROLLBACK` 后恢复 `previous.env` 指向的镜像和 release bundle，等待应用健康，再验证公网生产 health。生产部署与回滚共用 concurrency group，不会同时修改服务器；失败时不切换当前 state。
 
 ## GitHub 初始设置
 
